@@ -1,0 +1,5 @@
+{
+  "name": "CogniMap",
+  "description": "An adaptive learning platform that generates personalized knowledge graphs and lecture content using Gemini, tailoring explanations to your existing expertise.",
+  "requestFramePermissions": []
+}
