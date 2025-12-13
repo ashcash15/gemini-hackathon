@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef, useMemo } from 'react';
 import * as d3 from 'd3';
 import { LearningGraph, LearningNode, NodeStatus } from '../types';
@@ -7,14 +8,13 @@ interface ForceGraphProps {
   onNodeClick: (node: LearningNode) => void;
   width?: number;
   height?: number;
+  isDarkMode: boolean;
 }
 
-const ForceGraph: React.FC<ForceGraphProps> = ({ data, onNodeClick, width = 800, height = 600 }) => {
+const ForceGraph: React.FC<ForceGraphProps> = ({ data, onNodeClick, width = 800, height = 600, isDarkMode }) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // We clone data to avoid mutating props directly during D3 simulation
-  // Memoize to prevent re-running simulation unless data actually changes structurally
   const graphData = useMemo(() => {
     return {
       nodes: data.nodes.map(d => ({ ...d })),
@@ -26,45 +26,50 @@ const ForceGraph: React.FC<ForceGraphProps> = ({ data, onNodeClick, width = 800,
     if (!svgRef.current || !containerRef.current) return;
 
     const svg = d3.select(svgRef.current);
-    svg.selectAll("*").remove(); // Clear previous render
+    svg.selectAll("*").remove();
 
     const w = containerRef.current.clientWidth;
     const h = containerRef.current.clientHeight;
 
-    // Define Arrow markers
-    svg.append("defs").selectAll("marker")
-      .data(["end"])
-      .enter().append("marker")
+    // Define colors based on mode
+    const colors = {
+        line: isDarkMode ? "#374151" : "#e2e8f0",
+        arrow: isDarkMode ? "#64748b" : "#cbd5e1",
+        text: isDarkMode ? "#e2e8f0" : "#334155",
+        node: {
+            completed: { fill: isDarkMode ? "#064e3b" : "#dcfce7", stroke: isDarkMode ? "#34d399" : "#16a34a" },
+            active: { fill: isDarkMode ? "#451a03" : "#fef3c7", stroke: isDarkMode ? "#fbbf24" : "#d97706" },
+            available: { fill: isDarkMode ? "#172554" : "#ffffff", stroke: isDarkMode ? "#60a5fa" : "#2563eb" },
+            locked: { fill: isDarkMode ? "#1e2937" : "#f1f5f9", stroke: isDarkMode ? "#4b5563" : "#cbd5e1" }
+        }
+    };
+
+    // Define Arrow Marker
+    const defs = svg.append("defs");
+    defs.append("marker")
       .attr("id", "arrow")
       .attr("viewBox", "0 -5 10 10")
-      .attr("refX", 25) // Offset from node center
+      .attr("refX", 32)
       .attr("refY", 0)
       .attr("markerWidth", 6)
       .attr("markerHeight", 6)
       .attr("orient", "auto")
       .append("path")
       .attr("d", "M0,-5L10,0L0,5")
-      .attr("fill", "#64748b"); // Slate-500
+      .attr("fill", colors.arrow);
 
-    // Compute levels for "tree-like" left-to-right flow
+    // Compute Levels
     const levels: Record<string, number> = {};
     const computeLevels = () => {
-      // Basic topological level assignment
+      graphData.nodes.forEach(n => { levels[n.id] = 0; });
       let changed = true;
-      // Initialize roots
-      graphData.nodes.forEach(n => {
-          levels[n.id] = 0;
-      });
-      
       let iterations = 0;
       while(changed && iterations < 20) {
           changed = false;
           iterations++;
           graphData.links.forEach(link => {
-             // D3 converts source/target to objects, but initially they might be strings or objects
              const sourceId = typeof link.source === 'object' ? (link.source as any).id : link.source;
              const targetId = typeof link.target === 'object' ? (link.target as any).id : link.target;
-             
              if (levels[sourceId] !== undefined && levels[targetId] !== undefined) {
                  if (levels[targetId] < levels[sourceId] + 1) {
                      levels[targetId] = levels[sourceId] + 1;
@@ -80,21 +85,21 @@ const ForceGraph: React.FC<ForceGraphProps> = ({ data, onNodeClick, width = 800,
     const levelWidth = w / (maxLevel + 1);
 
     const simulation = d3.forceSimulation(graphData.nodes as any)
-      .force("link", d3.forceLink(graphData.links).id((d: any) => d.id).distance(100))
+      .force("link", d3.forceLink(graphData.links).id((d: any) => d.id).distance(120))
       .force("charge", d3.forceManyBody().strength(-400))
       .force("collide", d3.forceCollide(50))
       .force("center", d3.forceCenter(w / 2, h / 2))
       .force("x", d3.forceX((d: any) => {
          const lvl = levels[d.id] || 0;
-         return (lvl * levelWidth) + (levelWidth / 2); // Distribute left to right
+         return (lvl * levelWidth) + (levelWidth / 2);
       }).strength(0.5))
-      .force("y", d3.forceY(h/2).strength(0.1));
+      .force("y", d3.forceY(h/2).strength(0.2));
 
     const link = svg.append("g")
       .selectAll("line")
       .data(graphData.links)
       .enter().append("line")
-      .attr("stroke", "#334155")
+      .attr("stroke", colors.line)
       .attr("stroke-width", 2)
       .attr("marker-end", "url(#arrow)");
 
@@ -109,58 +114,40 @@ const ForceGraph: React.FC<ForceGraphProps> = ({ data, onNodeClick, width = 800,
         }
       });
 
-    // Node Circles
     nodeGroup.append("circle")
-      .attr("r", 20)
+      .attr("r", 24)
       .attr("fill", (d: any) => {
         switch (d.status) {
-          case NodeStatus.COMPLETED: return "#10b981"; // Emerald-500
-          case NodeStatus.ACTIVE: return "#f59e0b"; // Amber-500
-          case NodeStatus.AVAILABLE: return "#3b82f6"; // Blue-500
-          case NodeStatus.LOCKED: return "#1e293b"; // Slate-800
-          default: return "#94a3b8";
+          case NodeStatus.COMPLETED: return colors.node.completed.fill;
+          case NodeStatus.ACTIVE: return colors.node.active.fill;
+          case NodeStatus.AVAILABLE: return colors.node.available.fill;
+          case NodeStatus.LOCKED: return colors.node.locked.fill;
+          default: return colors.node.locked.fill;
         }
       })
       .attr("stroke", (d: any) => {
-        return d.status === NodeStatus.LOCKED ? "#475569" : "#f8fafc";
+         switch (d.status) {
+          case NodeStatus.COMPLETED: return colors.node.completed.stroke;
+          case NodeStatus.ACTIVE: return colors.node.active.stroke;
+          case NodeStatus.AVAILABLE: return colors.node.available.stroke;
+          case NodeStatus.LOCKED: return colors.node.locked.stroke;
+          default: return colors.node.locked.stroke;
+        }
       })
-      .attr("stroke-width", 2);
+      .attr("stroke-width", (d: any) => d.status === NodeStatus.AVAILABLE ? 2 : 1.5)
+      .style("filter", (d: any) => d.status === NodeStatus.AVAILABLE ? "drop-shadow(0px 2px 4px rgba(0,0,0,0.05))" : "none");
 
-    // Status Indicator Ring (Pulse if available)
-    nodeGroup.filter((d: any) => d.status === NodeStatus.AVAILABLE)
-        .append("circle")
-        .attr("r", 25)
-        .attr("fill", "none")
-        .attr("stroke", "#3b82f6")
-        .attr("stroke-opacity", 0.5)
-        .attr("stroke-width", 2)
-        .append("animate")
-        .attr("attributeName", "r")
-        .attr("from", "20")
-        .attr("to", "30")
-        .attr("dur", "1.5s")
-        .attr("repeatCount", "indefinite")
-        .select(function() { return this.parentNode; }) // Go back to circle
-        .append("animate")
-        .attr("attributeName", "opacity")
-        .attr("from", "1")
-        .attr("to", "0")
-        .attr("dur", "1.5s")
-        .attr("repeatCount", "indefinite");
-
-
-    // Text Labels
     nodeGroup.append("text")
       .text((d: any) => d.title)
       .attr("x", 0)
-      .attr("y", 35)
+      .attr("y", 40)
       .attr("text-anchor", "middle")
-      .attr("fill", "#e2e8f0")
-      .attr("font-size", "12px")
+      .attr("fill", colors.text)
+      .attr("font-size", "11px")
       .attr("font-family", "Inter, sans-serif")
       .attr("font-weight", "500")
       .style("pointer-events", "none")
-      .call(wrap, 120); // Helper to wrap text
+      .call(wrap, 120);
 
     simulation.on("tick", () => {
       link
@@ -176,9 +163,8 @@ const ForceGraph: React.FC<ForceGraphProps> = ({ data, onNodeClick, width = 800,
     return () => {
       simulation.stop();
     };
-  }, [graphData, onNodeClick]);
+  }, [graphData, onNodeClick, isDarkMode]);
 
-  // Text wrapping helper for D3
   function wrap(text: any, width: number) {
     text.each(function(this: SVGTextElement) {
       const text = d3.select(this);
@@ -186,7 +172,7 @@ const ForceGraph: React.FC<ForceGraphProps> = ({ data, onNodeClick, width = 800,
       let word;
       let line: string[] = [];
       let lineNumber = 0;
-      const lineHeight = 1.1; // ems
+      const lineHeight = 1.1; 
       const y = text.attr("y");
       const dy = 0; 
       let tspan = text.text(null).append("tspan").attr("x", 0).attr("y", y).attr("dy", dy + "em");
@@ -204,20 +190,20 @@ const ForceGraph: React.FC<ForceGraphProps> = ({ data, onNodeClick, width = 800,
   }
 
   return (
-    <div ref={containerRef} className="w-full h-full min-h-[500px] rounded-xl bg-dark-surface border border-dark-border overflow-hidden relative shadow-2xl">
+    <div ref={containerRef} className="w-full h-full min-h-[500px] rounded-xl bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 overflow-hidden relative shadow-sm transition-colors">
         <svg ref={svgRef} className="w-full h-full block"></svg>
-        <div className="absolute top-4 left-4 flex flex-col gap-2 pointer-events-none">
+        <div className="absolute top-4 right-4 flex flex-col gap-2 pointer-events-none p-3 rounded-lg bg-white/90 dark:bg-neutral-900/90 backdrop-blur-sm border border-neutral-100 dark:border-neutral-800 shadow-sm transition-colors">
             <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
-                <span className="text-xs text-slate-300">Completed</span>
+                <div className="w-2.5 h-2.5 rounded-full bg-green-100 dark:bg-green-900 border border-green-600 dark:border-green-500"></div>
+                <span className="text-xs text-neutral-600 dark:text-neutral-400 font-medium">Completed</span>
             </div>
             <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-blue-500"></div>
-                <span className="text-xs text-slate-300">Available</span>
+                <div className="w-2.5 h-2.5 rounded-full bg-white dark:bg-neutral-800 border border-blue-600 dark:border-blue-500"></div>
+                <span className="text-xs text-neutral-600 dark:text-neutral-400 font-medium">Available</span>
             </div>
             <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-slate-800 border border-slate-600"></div>
-                <span className="text-xs text-slate-300">Locked</span>
+                <div className="w-2.5 h-2.5 rounded-full bg-slate-100 dark:bg-neutral-700 border border-slate-300 dark:border-neutral-600"></div>
+                <span className="text-xs text-neutral-400 dark:text-neutral-500 font-medium">Locked</span>
             </div>
         </div>
     </div>

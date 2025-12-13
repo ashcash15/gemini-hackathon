@@ -30,44 +30,43 @@ const GRAPH_SCHEMA: Schema = {
         type: Type.OBJECT,
         properties: {
           term: { type: Type.STRING },
-          definition: { type: Type.STRING, description: "A concise, 1-2 sentence definition tailored to the user's background." }
+          definition: { type: Type.STRING, description: "A concise definition." }
         },
         required: ["term", "definition"]
       },
-      description: "A list of 10-15 essential technical terms related to the learning goal that the user will encounter."
+      description: "Key terms."
     }
   },
   required: ["nodes", "glossary"]
 };
 
+// ... (Lecture Schema remains the same, omitted for brevity but assumed present in logic)
 const LECTURE_SCHEMA: Schema = {
   type: Type.OBJECT,
   properties: {
     moduleId: { type: Type.STRING },
     title: { type: Type.STRING },
-    analogy: { type: Type.STRING, description: "A powerful analogy explaining the concept using the user's specific background knowledge." },
+    analogy: { type: Type.STRING },
     conceptMappings: {
       type: Type.ARRAY,
       items: {
         type: Type.OBJECT,
         properties: {
-          newConcept: { type: Type.STRING, description: "The term from the new topic (e.g., 'Inhibitory Neurotransmitter')." },
-          familiarConcept: { type: Type.STRING, description: "The equivalent term from the user's background (e.g., 'Risk Management')." },
-          relation: { type: Type.STRING, description: "Short description of the functional similarity (e.g., 'Prevents system overload')." }
+          newConcept: { type: Type.STRING },
+          familiarConcept: { type: Type.STRING },
+          relation: { type: Type.STRING }
         },
         required: ["newConcept", "familiarConcept", "relation"]
-      },
-      description: "List 3-4 key term mappings to visualize the analogy as a neural network."
+      }
     },
     codeSnippet: {
       type: Type.OBJECT,
       properties: {
-        language: { type: Type.STRING, description: "e.g., python, javascript, rust" },
-        code: { type: Type.STRING, description: "A short, runnable code example illustrating the concept." },
-        output: { type: Type.STRING, description: "The expected console output or result of running the code." },
-        description: { type: Type.STRING, description: "Brief explanation of what the code does." }
-      },
-      description: "Include this ONLY if the topic involves programming or technical syntax."
+        language: { type: Type.STRING },
+        code: { type: Type.STRING },
+        output: { type: Type.STRING },
+        description: { type: Type.STRING }
+      }
     },
     sections: {
       type: Type.ARRAY,
@@ -75,17 +74,16 @@ const LECTURE_SCHEMA: Schema = {
         type: Type.OBJECT,
         properties: {
           title: { type: Type.STRING },
-          content: { type: Type.STRING, description: "Detailed educational content in Markdown. Keep it focused (approx 150 words)." }
+          content: { type: Type.STRING }
         },
         required: ["title", "content"]
-      },
-      description: "Break the lecture into 2-3 logical sections."
+      }
     },
     practiceScenario: {
       type: Type.OBJECT,
       properties: {
         title: { type: Type.STRING },
-        description: { type: Type.STRING, description: "A scenario based on the user's BACKGROUND where they must apply the new concept." },
+        description: { type: Type.STRING },
         options: {
           type: Type.ARRAY,
           items: {
@@ -109,7 +107,7 @@ const LECTURE_SCHEMA: Schema = {
           question: { type: Type.STRING },
           options: { type: Type.ARRAY, items: { type: Type.STRING } },
           correctIndex: { type: Type.INTEGER },
-          explanation: { type: Type.STRING, description: "Why the correct answer is correct." }
+          explanation: { type: Type.STRING }
         },
         required: ["question", "options", "correctIndex", "explanation"]
       }
@@ -118,7 +116,6 @@ const LECTURE_SCHEMA: Schema = {
   required: ["moduleId", "title", "analogy", "conceptMappings", "sections", "practiceScenario", "quiz"]
 };
 
-// Partial schema for expansion to just get nodes
 const EXPANSION_SCHEMA: Schema = {
   type: Type.OBJECT,
   properties: {
@@ -128,7 +125,7 @@ const EXPANSION_SCHEMA: Schema = {
         type: Type.OBJECT,
         properties: {
           title: { type: Type.STRING },
-          description: { type: Type.STRING, description: "Focus on advanced/specialized application." },
+          description: { type: Type.STRING },
         },
         required: ["title", "description"]
       }
@@ -137,19 +134,51 @@ const EXPANSION_SCHEMA: Schema = {
   required: ["newNodes"]
 };
 
+const GLOSSARY_SCHEMA: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    glossary: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          term: { type: Type.STRING },
+          definition: { type: Type.STRING }
+        },
+        required: ["term", "definition"]
+      }
+    }
+  },
+  required: ["glossary"]
+};
+
 export const generateLearningPath = async (userContext: UserContext): Promise<LearningGraph> => {
   const modelId = "gemini-2.5-flash"; 
   
+  // Differentiate between Deep Study (Roadmap) and Regular Study
+  let taskDescription = "";
+  let countInstruction = "";
+  
+  if (userContext.isDeepStudy) {
+    taskDescription = `Create a "Progress Graph" (Roadmap) of Major Milestones (Topics) to master "${userContext.learningGoal}". Each node will later be expanded into its own full course.`;
+    countInstruction = "Create 5 to 7 Major Milestones. They must be progressive.";
+  } else {
+    taskDescription = `Create a dependency-based learning graph to teach "${userContext.learningGoal}".`;
+    countInstruction = "Create between 7 to 12 modules (nodes).";
+  }
+
   const prompt = `
-    Create a dependency-based learning graph to teach "${userContext.learningGoal}" to someone who already knows "${userContext.existingKnowledge}".
+    ${taskDescription}
+    User Background: "${userContext.existingKnowledge}".
+    Detailed Context: "${userContext.detailedBackground}".
     
     Rules:
-    1. Create between 7 to 12 modules (nodes).
-    2. The first node should bridge the user's existing knowledge to the basics of the new topic.
+    1. ${countInstruction}
+    2. The first node should bridge the user's background to the new topic.
     3. Ensure the graph is a DAG (Directed Acyclic Graph). No circular dependencies.
-    4. dependencies must reference the 'id' of other nodes in the list.
-    5. 'id' should be simple strings like "1", "2", "3".
-    6. Generate a glossary of 10-15 key terms that will be used throughout this course.
+    4. dependencies must reference the 'id' of other nodes.
+    5. 'id' should be simple strings.
+    6. CRITICAL: Generate a comprehensive GLOSSARY of at least 20-25 key terms and definitions related to the topic. These will be used for flashcards.
   `;
 
   try {
@@ -159,7 +188,6 @@ export const generateLearningPath = async (userContext: UserContext): Promise<Le
       config: {
         responseMimeType: "application/json",
         responseSchema: GRAPH_SCHEMA,
-        systemInstruction: "You are an expert curriculum designer capable of creating personalized learning paths."
       }
     });
 
@@ -186,6 +214,56 @@ export const generateLearningPath = async (userContext: UserContext): Promise<Le
   }
 };
 
+export const generateSubGraph = async (majorTopic: LearningNode, userContext: UserContext): Promise<LearningGraph> => {
+  const modelId = "gemini-2.5-flash";
+  
+  const prompt = `
+    The user is doing a Deep Study on "${userContext.learningGoal}".
+    They have reached the Major Milestone: "${majorTopic.title}" (${majorTopic.description}).
+    
+    User Background: ${userContext.existingKnowledge}
+    Detailed Context: ${userContext.detailedBackground}
+    
+    Task: Create a detailed sub-graph of modules specifically to master this milestone ("${majorTopic.title}").
+    
+    Rules:
+    1. Create 5-8 specific learning modules.
+    2. Ensure progressive difficulty.
+    3. Include a specific glossary of 15+ terms for this sub-topic.
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: modelId,
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: GRAPH_SCHEMA,
+      }
+    });
+
+    const data = JSON.parse(response.text || "{}");
+    const rawNodes = data.nodes || [];
+    const glossary = data.glossary || [];
+
+    const nodes: LearningNode[] = rawNodes.map((n: any) => ({
+      ...n,
+      status: 'LOCKED' 
+    }));
+
+    const links = [];
+    for (const node of nodes) {
+      for (const depId of node.dependencies) {
+        links.push({ source: depId, target: node.id });
+      }
+    }
+
+    return { nodes, links, glossary };
+  } catch (error) {
+     throw new Error("Failed to generate sub-graph");
+  }
+};
+
 export const refineLearningPath = async (
   currentGraph: LearningGraph,
   userContext: UserContext,
@@ -197,6 +275,7 @@ export const refineLearningPath = async (
 
   const prompt = `
     The user is reviewing a proposed learning path for "${userContext.learningGoal}" (Background: "${userContext.existingKnowledge}").
+    Detailed Context: "${userContext.detailedBackground}".
     
     Current Modules:
     ${currentNodesJSON}
@@ -205,13 +284,7 @@ export const refineLearningPath = async (
 
     Task:
     Regenerate the learning graph to address the user's feedback.
-    - If they want it harder, add advanced topics.
-    - If they want to skip basics, remove early nodes and re-link dependencies.
-    - If they want to focus on a specific sub-topic, expand on that.
-    
-    Also regenerate the glossary to match the new curriculum focus.
-    
-    Maintain the JSON structure. Ensure valid IDs and dependencies.
+    Maintain JSON structure.
   `;
 
   try {
@@ -221,7 +294,6 @@ export const refineLearningPath = async (
       config: {
         responseMimeType: "application/json",
         responseSchema: GRAPH_SCHEMA,
-        systemInstruction: "You are an adaptive curriculum designer. Listen to the user's feedback and adjust the course plan accordingly."
       }
     });
 
@@ -256,15 +328,11 @@ export const expandLearningGraph = async (
   const modelId = "gemini-2.5-flash";
 
   const prompt = `
-    The user has just COMPLETED the module: "${completedNode.title}" (${completedNode.description}).
-    Context: Learning "${userContext.learningGoal}" with background in "${userContext.existingKnowledge}".
+    The user has just COMPLETED the module: "${completedNode.title}".
+    Context: Learning "${userContext.learningGoal}".
     
-    Current existing modules: ${existingTitles.join(", ")}.
-
-    Task:
-    Suggest 2 NEW, ADVANCED follow-up modules that branch off directly from "${completedNode.title}".
-    These should be deeper dives or more complex applications of the concept user just learned.
-    Do not duplicate existing module titles.
+    Suggest 2 NEW, ADVANCED follow-up modules.
+    Do not duplicate existing modules: ${existingTitles.join(", ")}.
   `;
 
   try {
@@ -288,30 +356,50 @@ export const expandLearningGraph = async (
 export const generateLectureContent = async (
   node: LearningNode,
   userContext: UserContext,
-  completedNodes: LearningNode[] = []
+  completedNodes: LearningNode[] = [],
+  refinementInstruction?: string,
+  isRemedial: boolean = false
 ): Promise<LectureContent> => {
   const modelId = "gemini-2.5-flash";
 
   const completedTitles = completedNodes.map(n => n.title).join(", ");
-  const historyContext = completedTitles 
-    ? `The user has recently completed these modules: [${completedTitles}]. Reference these concepts if helpful to explain the new topic.` 
-    : "This is the first module in the learning path.";
+  
+  let refinementText = "";
+  if (refinementInstruction) {
+    refinementText = `\nCRITICAL MODIFICATION INSTRUCTION: The user wants to change this module. Feedback: "${refinementInstruction}". Completely re-write the content to satisfy this request.`;
+  }
+  
+  let remedialText = "";
+  if (isRemedial) {
+      remedialText = `\nURGENT: The user FAILED this module previously. The content was too difficult or unclear.
+      1. SIMPLIFY the language significantly (explain like they are a beginner/student).
+      2. Use simpler, more concrete analogies.
+      3. Break down complex concepts into smaller steps.
+      4. Focus on the areas where they likely struggled (core concepts).
+      5. Make the quiz slightly easier but ensuring understanding.`;
+  }
 
   const prompt = `
-    Create an interactive lecture module for the topic: "${node.title}".
+    Create an comprehensive, in-depth interactive lecture module for: "${node.title}".
     Description: "${node.description}".
     
-    Target Audience Background: "${userContext.existingKnowledge}".
-    Learning Goal: "${userContext.learningGoal}".
-    Context: ${historyContext}
+    User Profile:
+    - Primary Background: "${userContext.existingKnowledge}"
+    - Detailed Context: "${userContext.detailedBackground}"
+    - Goal: "${userContext.learningGoal}"
+    
+    History: [${completedTitles}]
+
+    ${refinementText}
+    ${remedialText}
     
     Structure Requirements:
-    1. Analogy: Start with a strong "Hook". Explain the concept using a detailed analogy from the user's background ("${userContext.existingKnowledge}").
-    2. Concept Mapping: Explicitly map 3-4 key terms from the New Topic to the User's Background. (e.g., If Neuroscience vs Finance: "Inhibitory Neurotransmitter" maps to "Risk Management Team").
-    3. Code Example: IF and ONLY IF the topic is about Programming, Coding, or Data Science, provide a 'codeSnippet' object with code, language, and expected output. If not relevant, omit this field.
-    4. Sections: Break the main concept into 2-3 digestable sections.
-    5. Practice Scenario: Create a specific scenario where the user (imagined as an expert in ${userContext.existingKnowledge}) encounters a problem that can be solved using this new concept from ${userContext.learningGoal}.
-    6. Quiz: 3 multiple choice questions to test understanding.
+    1. Analogy: Use specific details from their background/detailed context.
+    2. Concept Mapping: Map exactly 3-5 key terms to show the relationship between their known concepts and the new topic. Keep it simple and direct.
+    3. Code Example: Only if technical.
+    4. Sections: Break the content into 10-12 distinct, detailed sections (pages). Each section should cover one specific aspect thoroughly. The goal is to create a long, comprehensive lesson (approx 15 pages total).
+    5. Practice Scenario: Specific to their background.
+    6. Quiz: 3 MCQs.
   `;
 
   try {
@@ -321,7 +409,6 @@ export const generateLectureContent = async (
       config: {
         responseMimeType: "application/json",
         responseSchema: LECTURE_SCHEMA,
-        systemInstruction: "You are a world-class tutor who specializes in cross-disciplinary analogies and interactive teaching."
       }
     });
 
@@ -333,14 +420,38 @@ export const generateLectureContent = async (
   }
 };
 
+export const generateModuleSummary = async (lecture: LectureContent): Promise<string> => {
+    const modelId = "gemini-2.5-flash";
+    const prompt = `
+      Create a comprehensive summary of the module "${lecture.title}".
+      
+      Key Points from Content:
+      ${lecture.sections.map(s => `- ${s.title}: ${s.content.substring(0, 100)}...`).join('\n')}
+      
+      Analogy used: ${lecture.analogy}
+
+      Format: Markdown. Concise but capture key takeaways.
+    `;
+
+    try {
+        const response = await ai.models.generateContent({
+            model: modelId,
+            contents: prompt
+        });
+        return response.text || "No summary generated.";
+    } catch (error) {
+        return "Failed to generate summary.";
+    }
+}
+
 export const generateModuleImage = async (title: string, analogy: string): Promise<string | undefined> => {
   const modelId = "gemini-2.5-flash-image";
   
   const prompt = `
-    Create a high-quality, flat vector illustration for an educational textbook chapter titled "${title}". 
-    The core concept is explained via this analogy: "${analogy}".
-    Visual Style: Modern, clean, geometric, abstract, using a cool color palette (blues, teals, dark slate) on a dark background.
-    Do not include text in the image.
+    Create a high-quality, abstract glassmorphism style illustration for: "${title}". 
+    Concept: "${analogy}".
+    Style: Liquid glass, translucent shapes, neon accents, dark background, 3D render, octane render.
+    No text.
   `;
 
   try {
@@ -370,31 +481,18 @@ export const askTutor = async (
   }
 ): Promise<string> => {
   const modelId = "gemini-3-pro-preview";
-
   const conversation = context.chatHistory.map(m => `${m.role === 'user' ? 'Student' : 'Tutor'}: ${m.text}`).join('\n');
   
   const prompt = `
-    You are an expert AI Tutor helping a student learn "${context.lectureContext.title}".
+    You are an expert AI Tutor.
+    Topic: "${context.lectureContext.title}".
+    Student Context: ${context.userContext.detailedBackground}
     
-    Current Lecture Content Context:
-    ${context.lectureContext.sections.map(s => `[${s.title}]: ${s.content}`).join('\n')}
-    
-    Student Profile:
-    - Background Knowledge: ${context.userContext.existingKnowledge}
-    - Learning Goal: ${context.userContext.learningGoal}
-    
-    Conversation History:
+    Conversation:
     ${conversation}
-    
     Student Question: "${question}"
     
-    Instructions:
-    1. Answer the student's question accurately.
-    2. Tailor the answer to their background (use analogies related to ${context.userContext.existingKnowledge} if applicable).
-    3. Keep the tone encouraging and educational.
-    4. If the question is unrelated to the topic, gently steer them back to "${context.lectureContext.title}".
-    5. Use Markdown for clarity (bold key terms, lists if needed).
-    6. Be concise (under 150 words) but thorough.
+    Answer concisely using analogies from their background.
   `;
 
   try {
@@ -402,24 +500,52 @@ export const askTutor = async (
       model: modelId,
       contents: prompt,
     });
-    return response.text || "I'm having trouble thinking of an answer right now. Try asking again?";
+    return response.text || "I'm having trouble thinking of an answer right now.";
   } catch (error) {
-    console.error("Tutor Error:", error);
-    return "I'm having trouble connecting to the knowledge base. Please try again.";
+    return "Connection error.";
+  }
+};
+
+export const askGlobalTutor = async (
+  question: string,
+  context: {
+    userContext: UserContext,
+    graphData: LearningGraph,
+    chatHistory: ChatMessage[]
+  }
+): Promise<string> => {
+  const modelId = "gemini-3-pro-preview";
+  const conversation = context.chatHistory.map(m => `${m.role === 'user' ? 'User' : 'Course Guide'}: ${m.text}`).join('\n');
+  const modules = context.graphData.nodes.map(n => n.title).join(", ");
+
+  const prompt = `
+    You are the "Course Guide" for a personalized learning path on "${context.userContext.learningGoal}".
+    The user's background: ${context.userContext.existingKnowledge}.
+    
+    Course Modules: ${modules}
+    
+    Conversation history:
+    ${conversation}
+    
+    User Question: "${question}"
+    
+    Answer concisely. Help them navigate the course or understand high-level concepts.
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: modelId,
+      contents: prompt,
+    });
+    return response.text || "I can't answer that right now.";
+  } catch (error) {
+    return "Connection error.";
   }
 };
 
 export const defineTerm = async (term: string, context: UserContext): Promise<string> => {
   const modelId = "gemini-2.5-flash";
-  const prompt = `
-    Define the term "${term}".
-    Context: The user is learning about "${context.learningGoal}" and has a background in "${context.existingKnowledge}".
-    
-    Rules:
-    1. Provide a concise definition (max 3 sentences).
-    2. If helpful, use an analogy related to their background ("${context.existingKnowledge}").
-    3. Keep it simple and clear.
-  `;
+  const prompt = `Define "${term}" for someone with this background: ${context.existingKnowledge}. Keep it simple.`;
 
   try {
     const response = await ai.models.generateContent({
@@ -428,29 +554,14 @@ export const defineTerm = async (term: string, context: UserContext): Promise<st
     });
     return response.text || "Definition not found.";
   } catch (error) {
-    console.error("Dictionary Error:", error);
     return "Could not retrieve definition.";
   }
 }
 
 export const generateCourseSummary = async (graph: LearningGraph, userContext: UserContext): Promise<string> => {
   const modelId = "gemini-2.5-flash";
-  
   const modulesText = graph.nodes.map(n => `Module: ${n.title}\nDescription: ${n.description}`).join('\n\n');
-  
-  const prompt = `
-    You are an expert academic advisor.
-    Course Goal: ${userContext.learningGoal}
-    Student Background: ${userContext.existingKnowledge}
-    
-    Task: Create a detailed course summary/study guide for the following modules.
-    For EACH module, write a paragraph summarizing what it covers and why it is critical for the learning goal. Connect the concepts back to the student's background where possible.
-    
-    Modules:
-    ${modulesText}
-    
-    Output Format: Markdown. Use bold titles for modules. Add a "Prerequisites Review" section at the start.
-  `;
+  const prompt = `Create a study guide for:\n${modulesText}\n\nContext: ${userContext.detailedBackground}`;
 
   try {
     const response = await ai.models.generateContent({
@@ -459,7 +570,44 @@ export const generateCourseSummary = async (graph: LearningGraph, userContext: U
     });
     return response.text || "Could not generate summary.";
   } catch (error) {
-    console.error("Summary Generation Error:", error);
     return "Error generating summary.";
   }
 }
+
+export const generateGlossary = async (topic: string, userContext: UserContext): Promise<GlossaryTerm[]> => {
+    const modelId = "gemini-2.5-flash";
+    const prompt = `
+        Generate a comprehensive glossary of 20 key terms for the topic: "${topic}".
+        User Context: ${userContext.existingKnowledge}.
+        Definitions should be concise and easy to understand.
+    `;
+    try {
+        const response = await ai.models.generateContent({
+            model: modelId,
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: GLOSSARY_SCHEMA
+            }
+        });
+        const data = JSON.parse(response.text || "{}");
+        return data.glossary || [];
+    } catch (e) {
+        return [];
+    }
+}
+
+export const generatePodcastScript = async (lecture: LectureContent, userContext: UserContext): Promise<string> => {
+  const modelId = "gemini-2.5-flash";
+  const prompt = `Convert this lecture on "${lecture.title}" into a 2-minute energetic podcast script. Analogy: ${lecture.analogy}. Listener context: ${userContext.detailedBackground}. No speaker labels.`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: modelId,
+      contents: prompt,
+    });
+    return response.text || "Unable to generate podcast script.";
+  } catch (error) {
+    return "Error generating audio.";
+  }
+};

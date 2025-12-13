@@ -1,24 +1,29 @@
 
 export interface UserContext {
   existingKnowledge: string;
+  detailedBackground: string; // New: Detailed bio/context
   learningGoal: string;
+  isDeepStudy: boolean; // New: Mode toggle
 }
 
 export enum NodeStatus {
   LOCKED = 'LOCKED',
   AVAILABLE = 'AVAILABLE',
   COMPLETED = 'COMPLETED',
-  ACTIVE = 'ACTIVE' // Currently viewing
+  ACTIVE = 'ACTIVE'
 }
 
 export interface LearningNode {
   id: string;
   title: string;
   description: string;
-  dependencies: string[]; // IDs of parent nodes
+  dependencies: string[];
   status: NodeStatus;
   
-  // D3 Simulation properties (optional)
+  // For Deep Study: A node can have its own entire graph
+  subGraph?: LearningGraph; 
+  
+  // D3 Simulation properties
   x?: number;
   y?: number;
   fx?: number | null;
@@ -58,24 +63,24 @@ export interface PracticeScenario {
 }
 
 export interface ConceptMapping {
-  newConcept: string; // e.g. "Inhibitory Neurotransmitter"
-  familiarConcept: string; // e.g. "Risk Management Team"
-  relation: string; // e.g. "Prevents system overload/over-trading"
+  newConcept: string; 
+  familiarConcept: string; 
+  relation: string; 
 }
 
 export interface CodeSnippet {
   language: string;
   code: string;
-  output: string; // The simulated output
+  output: string; 
   description: string;
 }
 
 export interface LectureContent {
   moduleId: string;
   title: string;
-  analogy: string; // Specific analogy bridging existing knowledge to new concept
-  conceptMappings: ConceptMapping[]; // Visual mapping of terms
-  codeSnippet?: CodeSnippet; // Optional code block for technical topics
+  analogy: string; 
+  conceptMappings: ConceptMapping[]; 
+  codeSnippet?: CodeSnippet; 
   sections: LectureSection[];
   practiceScenario: PracticeScenario;
   quiz: {
@@ -84,7 +89,7 @@ export interface LectureContent {
     correctIndex: number;
     explanation: string;
   }[];
-  imageUrl?: string; // Base64 data URI of the generated image
+  imageUrl?: string; 
 }
 
 export interface ChatMessage {
@@ -99,11 +104,23 @@ export interface Note {
   updatedAt: number;
 }
 
+export interface Badge {
+  id: string;
+  label: string;
+  icon: string; 
+  description: string;
+  unlockedAt?: number;
+}
+
 export interface Session {
   id: string;
   lastAccessed: number;
   context: UserContext;
   graphData: LearningGraph | null;
-  completedNodeIds: string[]; // Array for storage
+  completedNodeIds: string[]; 
+  earnedBadges: Badge[];
   step: 'review' | 'main';
+  
+  // Deep Study State
+  currentSubGraphId?: string | null; // If user is drilled down into a topic
 }

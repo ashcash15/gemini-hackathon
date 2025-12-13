@@ -2,7 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { UserContext, GlossaryTerm } from '../types';
 import { defineTerm } from '../services/geminiService';
-import { Search, Book, Loader2, X, Sparkles } from 'lucide-react';
+import { Search, Book, Loader2, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 
 interface DictionaryProps {
@@ -15,114 +15,52 @@ const Dictionary: React.FC<DictionaryProps> = ({ userContext, glossary = [] }) =
   const [activeDefinition, setActiveDefinition] = useState<string | null>(null);
   const [activeTerm, setActiveTerm] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  // Filter existing glossary terms
   const filteredTerms = useMemo(() => {
     if (!searchTerm) return glossary.sort((a, b) => a.term.localeCompare(b.term));
-    return glossary
-      .filter(g => g.term.toLowerCase().includes(searchTerm.toLowerCase()))
-      .sort((a, b) => a.term.localeCompare(b.term));
+    return glossary.filter(g => g.term.toLowerCase().includes(searchTerm.toLowerCase())).sort((a, b) => a.term.localeCompare(b.term));
   }, [glossary, searchTerm]);
 
-  // Handle external AI search if term not found in glossary
   const handleAiSearch = async () => {
     if (!searchTerm.trim()) return;
-    
-    setLoading(true);
-    setActiveDefinition(null);
-    setActiveTerm(searchTerm);
-    setError(null);
-
-    try {
-      const result = await defineTerm(searchTerm, userContext);
-      setActiveDefinition(result);
-    } catch (e) {
-      setError("Could not find definition.");
-    } finally {
-      setLoading(false);
-    }
+    setLoading(true); setActiveDefinition(null); setActiveTerm(searchTerm);
+    try { const result = await defineTerm(searchTerm, userContext); setActiveDefinition(result); } catch (e) { } finally { setLoading(false); }
   };
 
-  const clearSearch = () => {
-      setSearchTerm('');
-      setActiveDefinition(null);
-      setActiveTerm(null);
-      setError(null);
-  }
-
   return (
-    <div className="flex flex-col h-full bg-slate-900 text-slate-200">
-      <div className="p-4 border-b border-slate-700 bg-slate-900/50">
-         <h3 className="font-bold text-slate-300 flex items-center gap-2 mb-3">
-            <Book size={18} />
-            Quick Reference
-        </h3>
-        <div className="relative flex gap-2">
-            <div className="relative flex-1">
-                <input 
-                    type="text" 
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleAiSearch()}
-                    placeholder="Filter terms..."
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-9 pr-8 py-2 text-sm text-white focus:outline-none focus:border-brand-500 transition-colors"
-                />
-                <Search size={14} className="absolute left-3 top-2.5 text-slate-500" />
-                {searchTerm && (
-                    <button 
-                        onClick={clearSearch} 
-                        className="absolute right-2 top-2 text-slate-500 hover:text-white"
-                    >
-                        <X size={14} />
-                    </button>
-                )}
-            </div>
-        </div>
+    <div className="flex flex-col h-full bg-neutral-50 dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100 transition-colors">
+      <div className="p-3 border-b border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+         <h3 className="font-semibold text-neutral-700 dark:text-neutral-200 flex items-center gap-2 text-sm mb-2"><Book size={16} /> Reference</h3>
+         <div className="relative">
+             <input type="text" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAiSearch()} placeholder="Search terms..." className="w-full bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-md pl-8 pr-8 py-1.5 text-sm focus:outline-none focus:border-blue-400 dark:text-white transition-colors placeholder-neutral-400" />
+             <Search size={14} className="absolute left-2.5 top-2 text-neutral-400" />
+             {searchTerm && <button onClick={() => {setSearchTerm(''); setActiveDefinition(null);}} className="absolute right-2 top-2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"><X size={14} /></button>}
+         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-        {/* State 1: Showing AI Search Result */}
         {loading ? (
-             <div className="flex flex-col items-center justify-center h-40 text-slate-500 gap-2">
-                <Loader2 size={24} className="animate-spin text-brand-500" />
-                <span className="text-xs">Consulting knowledge base...</span>
-            </div>
+             <div className="flex justify-center p-8"><Loader2 size={24} className="animate-spin text-blue-500" /></div>
         ) : activeDefinition ? (
-             <div className="animate-fadeIn">
-                <button onClick={() => { setActiveDefinition(null); setActiveTerm(null); }} className="text-xs text-brand-400 mb-2 hover:underline flex items-center gap-1">
-                    <X size={12} /> Clear AI Result
-                </button>
-                <div className="bg-slate-800/80 rounded-xl p-4 border border-brand-500/30 shadow-sm relative overflow-hidden">
-                    <div className="absolute top-0 right-0 p-2 opacity-10">
-                        <Sparkles size={40} />
-                    </div>
-                    <h4 className="text-lg font-bold text-white mb-2 capitalize">{activeTerm}</h4>
-                    <div className="text-sm text-slate-300 leading-relaxed prose prose-invert prose-sm">
-                         <ReactMarkdown>{activeDefinition}</ReactMarkdown>
-                    </div>
+             <div>
+                <button onClick={() => { setActiveDefinition(null); setActiveTerm(null); }} className="text-xs text-blue-600 dark:text-blue-400 mb-2 hover:underline">Clear Result</button>
+                <div className="bg-white dark:bg-neutral-900 rounded-lg p-4 border border-neutral-200 dark:border-neutral-800 shadow-sm">
+                    <h4 className="font-bold text-neutral-900 dark:text-white mb-2 capitalize">{activeTerm}</h4>
+                    <div className="text-sm text-neutral-600 dark:text-neutral-300 prose prose-sm dark:prose-invert"><ReactMarkdown>{activeDefinition}</ReactMarkdown></div>
                 </div>
             </div>
         ) : (
-            // State 2: Showing Glossary List
-            <div className="space-y-3">
+            <div className="space-y-2">
                 {filteredTerms.length > 0 ? (
                     filteredTerms.map((item, idx) => (
-                        <div key={idx} className="bg-slate-800/40 hover:bg-slate-800/80 rounded-xl p-4 border border-slate-700/50 transition-colors group">
-                            <h4 className="text-base font-bold text-brand-300 mb-1 group-hover:text-brand-200">{item.term}</h4>
-                            <p className="text-sm text-slate-400 leading-relaxed">{item.definition}</p>
+                        <div key={idx} className="bg-white dark:bg-neutral-900 p-3 rounded-lg border border-neutral-200 dark:border-neutral-800 shadow-sm">
+                            <h4 className="font-semibold text-neutral-800 dark:text-neutral-200 text-sm mb-1">{item.term}</h4>
+                            <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">{item.definition}</p>
                         </div>
                     ))
                 ) : (
                     <div className="text-center py-8">
-                        <p className="text-slate-500 text-sm mb-4">No matching terms in quick reference.</p>
-                        <button 
-                            onClick={handleAiSearch}
-                            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-sm text-brand-400 font-medium transition-colors flex items-center justify-center gap-2 mx-auto"
-                        >
-                            <Sparkles size={14} />
-                            Ask AI to define "{searchTerm}"
-                        </button>
+                        <button onClick={handleAiSearch} className="px-4 py-2 bg-white dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded-md text-sm text-neutral-600 dark:text-neutral-400 font-medium hover:bg-neutral-50 dark:hover:bg-neutral-800">Ask AI: "{searchTerm}"</button>
                     </div>
                 )}
             </div>

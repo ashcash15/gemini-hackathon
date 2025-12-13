@@ -1,209 +1,186 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { UserContext, LearningGraph, LearningNode, NodeStatus, LectureContent, Session, Note } from './types';
-import { generateLearningPath, generateLectureContent, generateModuleImage, refineLearningPath, expandLearningGraph, generateCourseSummary } from './services/geminiService';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { UserContext, LearningGraph, LearningNode, NodeStatus, LectureContent, Session, Note, Badge } from './types';
+import { generateLearningPath, generateLectureContent, generateModuleImage, generateSubGraph, generateModuleSummary, generateCourseSummary, generateGlossary } from './services/geminiService';
 import ForceGraph from './components/ForceGraph';
 import LectureView from './components/LectureModal';
 import Notebook from './components/Notebook';
 import Dictionary from './components/Dictionary';
-import { Sparkles, ArrowRight, BrainCircuit, AlertTriangle, Loader2, Map, List, Lock, CheckCircle, PlayCircle, Edit2, RefreshCw, Book, Briefcase, GraduationCap, ChevronRight, X, FileText, Plus, LayoutGrid, Clock, Trash2, Highlighter } from 'lucide-react';
+import Flashcards from './components/Flashcards';
+import GlobalChat from './components/GlobalChat';
+import { BrainCircuit, Loader2, Map, List, Lock, CheckCircle, PlayCircle, RefreshCw, Briefcase, X, FileText, Plus, Award, User, Layers, CornerUpLeft, Moon, Sun, ChevronRight, MessageCircle } from 'lucide-react';
 
-// --- Typewriter Component for Welcome Animation ---
-const Typewriter = ({ text, onComplete }: { text: string, onComplete?: () => void }) => {
-  const [displayText, setDisplayText] = useState('');
-  const [index, setIndex] = useState(0);
+// --- Profile Modal ---
+const UserProfileModal = ({ session, onClose }: { session: Session | undefined, onClose: () => void }) => {
+    if (!session) return null;
+    return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-fadeIn p-4">
+            <div className="bg-white dark:bg-neutral-900 rounded-2xl shadow-xl w-full max-w-xl overflow-hidden relative border border-neutral-200 dark:border-neutral-700 transition-colors">
+                <button onClick={onClose} className="absolute top-4 right-4 p-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-full text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 transition-colors">
+                    <X size={20} />
+                </button>
+                
+                <div className="p-8">
+                    <div className="flex items-center gap-4 mb-6">
+                        <div className="w-16 h-16 bg-neutral-100 dark:bg-neutral-800 rounded-full flex items-center justify-center text-neutral-500 dark:text-neutral-400">
+                             <User size={32} />
+                        </div>
+                        <div>
+                            <h2 className="text-xl font-semibold text-neutral-900 dark:text-white">User Profile</h2>
+                             <p className="text-sm text-neutral-500 dark:text-neutral-400 flex items-center gap-1">
+                                <Briefcase size={12} /> {session.context.existingKnowledge}
+                            </p>
+                        </div>
+                    </div>
 
-  useEffect(() => {
-    if (index < text.length) {
-      const timer = setTimeout(() => {
-        setDisplayText(prev => prev + text.charAt(index));
-        setIndex(prev => prev + 1);
-      }, 50); // Typing speed
-      return () => clearTimeout(timer);
-    } else {
-      if (onComplete) setTimeout(onComplete, 800); // Pause before finishing
-    }
-  }, [index, text, onComplete]);
+                    <div className="grid grid-cols-3 gap-4 mb-8">
+                        <div className="bg-neutral-50 dark:bg-neutral-800 rounded-xl p-4 border border-neutral-100 dark:border-neutral-700 text-center">
+                            <div className="text-2xl font-semibold text-neutral-900 dark:text-white mb-1">{session.completedNodeIds.length}</div>
+                            <div className="text-xs text-neutral-500 dark:text-neutral-400 uppercase tracking-wider font-medium">Modules</div>
+                        </div>
+                        <div className="bg-neutral-50 dark:bg-neutral-800 rounded-xl p-4 border border-neutral-100 dark:border-neutral-700 text-center">
+                            <div className="text-2xl font-semibold text-neutral-900 dark:text-white mb-1">{session.earnedBadges.length}</div>
+                            <div className="text-xs text-neutral-500 dark:text-neutral-400 uppercase tracking-wider font-medium">Badges</div>
+                        </div>
+                         <div className="bg-neutral-50 dark:bg-neutral-800 rounded-xl p-4 border border-neutral-100 dark:border-neutral-700 text-center">
+                            <div className="text-2xl font-semibold text-neutral-900 dark:text-white mb-1">{session.context.isDeepStudy ? 'Deep' : 'Fast'}</div>
+                            <div className="text-xs text-neutral-500 dark:text-neutral-400 uppercase tracking-wider font-medium">Mode</div>
+                        </div>
+                    </div>
 
-  return (
-    <span className="font-mono text-brand-400">
-      {displayText}
-      <span className="animate-pulse ml-1 text-brand-500">_</span>
-    </span>
-  );
+                    <h3 className="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-3">Earned Badges</h3>
+                    <div className="flex flex-wrap gap-2 mb-8">
+                        {session.earnedBadges.length === 0 && <span className="text-neutral-400 text-sm">No badges yet.</span>}
+                        {session.earnedBadges.map(b => (
+                            <div key={b.id} className="flex items-center gap-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-900/50 px-3 py-1.5 rounded-lg text-yellow-800 dark:text-yellow-200">
+                                <Award size={14} />
+                                <span className="font-medium text-xs">{b.label}</span>
+                            </div>
+                        ))}
+                    </div>
+                    
+                    <div className="pt-6 border-t border-neutral-100 dark:border-neutral-800">
+                         <h3 className="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-2">Detailed Context</h3>
+                         <p className="text-sm text-neutral-600 dark:text-neutral-300 leading-relaxed bg-neutral-50 dark:bg-neutral-800 p-3 rounded-lg border border-neutral-100 dark:border-neutral-700">
+                             "{session.context.detailedBackground || 'No detailed bio provided.'}"
+                         </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
 };
 
-// --- Animated Background Component ---
-const AnimatedBackground = () => (
-  <div className="absolute inset-0 overflow-hidden pointer-events-none -z-10">
-    <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-brand-600/20 rounded-full blur-[120px] animate-float opacity-70"></div>
-    <div className="absolute bottom-[-10%] right-[-10%] w-[600px] h-[600px] bg-indigo-600/20 rounded-full blur-[120px] animate-pulse-slow opacity-60"></div>
-    <div className="absolute top-[40%] left-[60%] w-[300px] h-[300px] bg-emerald-500/10 rounded-full blur-[100px] animate-float" style={{ animationDelay: '2s' }}></div>
-  </div>
-);
-
-// --- Toast Component ---
-const Toast = ({ message, onClose }: { message: string, onClose: () => void }) => (
-    <div className="fixed bottom-8 right-8 z-50 animate-slideUp">
-        <div className="bg-slate-800 border border-brand-500/50 text-white px-6 py-4 rounded-xl shadow-2xl shadow-brand-500/10 flex items-center gap-4 max-w-md">
-            <div className="p-2 bg-brand-500/20 rounded-full">
-                <Sparkles size={20} className="text-brand-400" />
-            </div>
-            <div className="flex-1">
-                <h4 className="font-bold text-brand-300 mb-1">Update</h4>
-                <p className="text-sm text-slate-300">{message}</p>
-            </div>
-            <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors">
-                <X size={18} />
-            </button>
-        </div>
-    </div>
-);
-
 const App: React.FC = () => {
-  // Global App State
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
   
-  // Ephemeral State for Onboarding/Creation
   const [globalStep, setGlobalStep] = useState<'welcome' | 'onboarding' | 'session_active'>('welcome');
-  const [tempContext, setTempContext] = useState<UserContext>({ existingKnowledge: '', learningGoal: '' });
+  const [tempContext, setTempContext] = useState<UserContext>({ 
+      existingKnowledge: '', 
+      learningGoal: '', 
+      detailedBackground: '', 
+      isDeepStudy: false 
+  });
   
-  // UI State
   const [viewMode, setViewMode] = useState<'graph' | 'module'>('graph');
-  const [sidebarTab, setSidebarTab] = useState<'graph' | 'modules' | 'notebook' | 'dictionary'>('graph');
-  const [showSessionMenu, setShowSessionMenu] = useState(false);
+  const [sidebarTab, setSidebarTab] = useState<'graph' | 'modules' | 'notebook' | 'dictionary' | 'flashcards'>('graph');
+  const [showProfile, setShowProfile] = useState(false);
+  const [showGlobalChat, setShowGlobalChat] = useState(false);
   
-  // Processing State
+  // Theme & Layout
+  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(320);
+  const [isResizing, setIsResizing] = useState(false);
+  
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadingContent, setLoadingContent] = useState(false);
-  const [isRefining, setIsRefining] = useState(false);
+  const [summarizingCourse, setSummarizingCourse] = useState(false);
   
-  // Active Module State (Ephemeral)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [lectureContent, setLectureContent] = useState<LectureContent | null>(null);
   const [reviewFeedback, setReviewFeedback] = useState("");
-  
-  // Notification State
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string, type: 'info' | 'achievement' } | null>(null);
 
-  // --- Initialization ---
+  // Initialize
   useEffect(() => {
     const savedSessions = localStorage.getItem('cognimap-sessions');
     if (savedSessions) {
-        try {
-            const parsed = JSON.parse(savedSessions);
-            setSessions(parsed);
-            if (parsed.length > 0) {
-                 setGlobalStep('onboarding');
-            }
-        } catch (e) {
-            console.error("Failed to load sessions", e);
-        }
+        try { setSessions(JSON.parse(savedSessions)); if (JSON.parse(savedSessions).length > 0) setGlobalStep('onboarding'); } catch (e) {}
     }
-
     const savedNotes = localStorage.getItem('cognimap-notes');
     if (savedNotes) {
-        try {
-            const parsed = JSON.parse(savedNotes);
-            setNotes(parsed);
-            if (parsed.length > 0) setActiveNoteId(parsed[0].id);
-        } catch (e) { console.error("Failed to load notes", e); }
+        try { setNotes(JSON.parse(savedNotes)); if (JSON.parse(savedNotes).length > 0) setActiveNoteId(JSON.parse(savedNotes)[0].id); } catch (e) {}
     } else {
-        const initialNote: Note = {
-            id: 'welcome',
-            title: 'Welcome to your Notebook',
-            content: 'This is where you can jot down thoughts, ideas, and key learnings.\n\n- [ ] It supports basic text\n- [ ] It saves automatically',
-            updatedAt: Date.now()
-        };
-        setNotes([initialNote]);
-        setActiveNoteId('welcome');
+        const initialNote = { id: 'welcome', title: 'Welcome', content: 'Your global notebook.', updatedAt: Date.now() };
+        setNotes([initialNote]); setActiveNoteId('welcome');
     }
+    const savedTheme = localStorage.getItem('cognimap-theme');
+    if (savedTheme === 'dark') setIsDarkMode(true);
   }, []);
 
-  // Save changes
-  useEffect(() => {
-      localStorage.setItem('cognimap-sessions', JSON.stringify(sessions));
-  }, [sessions]);
+  useEffect(() => { localStorage.setItem('cognimap-sessions', JSON.stringify(sessions)); }, [sessions]);
+  useEffect(() => { localStorage.setItem('cognimap-notes', JSON.stringify(notes)); }, [notes]);
+  useEffect(() => { 
+      localStorage.setItem('cognimap-theme', isDarkMode ? 'dark' : 'light'); 
+  }, [isDarkMode]);
 
-  useEffect(() => {
-      localStorage.setItem('cognimap-notes', JSON.stringify(notes));
-  }, [notes]);
+  const activeSession = useMemo(() => sessions.find(s => s.id === activeSessionId), [sessions, activeSessionId]);
+  
+  const currentGraphData = useMemo(() => {
+      if (!activeSession) return null;
+      if (activeSession.currentSubGraphId) {
+          const parentNode = activeSession.graphData?.nodes.find(n => n.id === activeSession.currentSubGraphId);
+          return parentNode?.subGraph || activeSession.graphData;
+      }
+      return activeSession.graphData;
+  }, [activeSession]);
 
-  // Derived Active Session
-  const activeSession = useMemo(() => 
-    sessions.find(s => s.id === activeSessionId), 
-  [sessions, activeSessionId]);
-
-  // Derived Graph Data Helpers
-  const completedNodeIdsSet = useMemo(() => 
-    new Set(activeSession?.completedNodeIds || []), 
-  [activeSession]);
-
-  const progress = activeSession && activeSession.graphData 
-    ? Math.round((activeSession.completedNodeIds.length / activeSession.graphData.nodes.length) * 100) 
+  const progress = currentGraphData 
+    ? Math.round((activeSession?.completedNodeIds.filter(id => currentGraphData.nodes.some(n => n.id === id)).length || 0) / currentGraphData.nodes.length * 100) 
     : 0;
 
-  // --- Note Management ---
-  const handleAddNote = () => {
-    const newNote: Note = {
-      id: Date.now().toString(),
-      title: 'Untitled Note',
-      content: '',
-      updatedAt: Date.now()
-    };
-    setNotes([newNote, ...notes]);
-    setActiveNoteId(newNote.id);
-  };
-
-  const handleUpdateNote = (id: string, key: keyof Note, value: string) => {
-    setNotes(prev => prev.map(n => {
-      if (n.id === id) {
-        return { ...n, [key]: value, updatedAt: Date.now() };
-      }
-      return n;
-    }));
-  };
-
-  const handleDeleteNote = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const filtered = notes.filter(n => n.id !== id);
-    setNotes(filtered);
-    if (activeNoteId === id) {
-      setActiveNoteId(filtered.length > 0 ? filtered[0].id : null);
+  // Sidebar Resize Logic
+  const startResizing = useCallback(() => setIsResizing(true), []);
+  const stopResizing = useCallback(() => setIsResizing(false), []);
+  const resize = useCallback((e: MouseEvent) => {
+    if (isResizing) {
+      setSidebarWidth(Math.max(250, Math.min(e.clientX, 800)));
     }
-  };
+  }, [isResizing]);
 
-  // --- Session Management ---
+  useEffect(() => {
+    window.addEventListener('mousemove', resize);
+    window.addEventListener('mouseup', stopResizing);
+    return () => {
+      window.removeEventListener('mousemove', resize);
+      window.removeEventListener('mouseup', stopResizing);
+    };
+  }, [resize, stopResizing]);
 
+  // Actions
   const handleStartJourney = async () => {
     if (!tempContext.existingKnowledge || !tempContext.learningGoal) return;
-    
-    setLoading(true);
-    setError(null);
+    setLoading(true); setError(null);
     try {
       const graph = await generateLearningPath(tempContext);
-      
       const newSession: Session = {
           id: Date.now().toString(),
           lastAccessed: Date.now(),
           context: { ...tempContext },
           graphData: graph,
           completedNodeIds: [],
-          step: 'review'
+          earnedBadges: [],
+          step: 'review',
+          currentSubGraphId: null
       };
-
-      setSessions(prev => [newSession, ...prev]);
+      setSessions([newSession, ...sessions]);
       setActiveSessionId(newSession.id);
       setGlobalStep('session_active');
-    } catch (err) {
-      setError("Failed to generate your learning path. Please try slightly different inputs.");
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { setError("Failed to generate path."); } finally { setLoading(false); }
   };
 
   const updateActiveSession = (updater: (s: Session) => Session) => {
@@ -211,609 +188,512 @@ const App: React.FC = () => {
       setSessions(prev => prev.map(s => s.id === activeSessionId ? { ...updater(s), lastAccessed: Date.now() } : s));
   };
 
-  const handleSwitchSession = (id: string) => {
-      setActiveSessionId(id);
-      setGlobalStep('session_active');
-      setViewMode('graph');
-      setShowSessionMenu(false);
+  // --- Helpers for Notebook ---
+  const handleAddNote = (title: string, content: string) => {
+      const newNote: Note = {
+          id: Date.now().toString(),
+          title,
+          content,
+          updatedAt: Date.now()
+      };
+      setNotes(prev => [newNote, ...prev]);
+      setActiveNoteId(newNote.id);
+      setToast({ message: "Note added to notebook", type: 'info' });
   };
-
-  const handleNewSession = () => {
-      setActiveSessionId(null);
-      setGlobalStep('onboarding');
-      setTempContext({ existingKnowledge: '', learningGoal: '' });
-      setShowSessionMenu(false);
+  
+  const handleUpdateNote = (id: string, key: keyof Note, value: string) => {
+      setNotes(prev => prev.map(n => n.id === id ? { ...n, [key]: value, updatedAt: Date.now() } : n));
   };
-
-  const handleDeleteSession = (e: React.MouseEvent, id: string) => {
+  
+  const handleDeleteNote = (id: string, e: React.MouseEvent) => {
       e.stopPropagation();
-      setSessions(prev => prev.filter(s => s.id !== id));
-      if (activeSessionId === id) {
-          setActiveSessionId(null);
-          setGlobalStep('onboarding');
+      setNotes(prev => prev.filter(n => n.id !== id));
+      if (activeNoteId === id) setActiveNoteId(null);
+  };
+
+  const handleRefineModule = async (instruction: string) => {
+      if (!selectedNodeId || !activeSession || !currentGraphData) return;
+      setLoadingContent(true);
+      try {
+          // Find current node
+          const node = currentGraphData.nodes.find(n => n.id === selectedNodeId);
+          if (node) {
+              const completed = currentGraphData.nodes.filter(n => activeSession?.completedNodeIds.includes(n.id));
+              // Pass instruction to service
+              const content = await generateLectureContent(node, activeSession.context, completed, instruction);
+              // Image generation not needed again unless specifically requested, but let's skip to save time/tokens for now or just reuse old one if we had it. 
+              // Simpler to just re-use the lecture view with new content.
+              setLectureContent(prev => ({ ...content, imageUrl: prev?.imageUrl })); 
+              setToast({ message: "Module content refined", type: 'info' });
+          }
+      } catch (e) {
+          setToast({ message: "Failed to refine module", type: 'info' });
+      } finally {
+          setLoadingContent(false);
       }
   };
 
-  // --- Logic for Review/Refinement ---
-
-  const handleRefinePlan = async () => {
-    if (!activeSession?.graphData || !reviewFeedback.trim()) return;
-    setIsRefining(true);
+  const handleModuleFail = async () => {
+    if (!selectedNodeId || !activeSession || !currentGraphData) return;
+    setLoadingContent(true);
     try {
-        const newGraph = await refineLearningPath(activeSession.graphData, activeSession.context, reviewFeedback);
-        updateActiveSession(s => ({ ...s, graphData: newGraph }));
-        setReviewFeedback("");
-    } catch (err) {
-        setError("Failed to refine the plan. Please try again.");
+        const node = currentGraphData.nodes.find(n => n.id === selectedNodeId);
+        if (node) {
+            const completed = currentGraphData.nodes.filter(n => activeSession?.completedNodeIds.includes(n.id));
+            // Call generate with remedial flag = true
+            const content = await generateLectureContent(node, activeSession.context, completed, undefined, true);
+            setLectureContent(prev => ({ ...content, imageUrl: prev?.imageUrl }));
+            setToast({ message: "Content simplified for easier learning", type: 'info' });
+        }
+    } catch (e) {
+        setToast({ message: "Failed to simplify content", type: 'info' });
     } finally {
-        setIsRefining(false);
+        setLoadingContent(false);
     }
   };
 
-  const handleApprovePlan = () => {
-      if (!activeSession?.graphData) return;
-      
-      const initializedNodes = activeSession.graphData.nodes.map(node => ({
-        ...node,
-        status: node.dependencies.length === 0 ? NodeStatus.AVAILABLE : NodeStatus.LOCKED
-      }));
-      
-      updateActiveSession(s => ({
-          ...s,
-          step: 'main',
-          graphData: { ...s.graphData!, nodes: initializedNodes }
-      }));
+  const handleSaveSummary = async (content: LectureContent) => {
+      const summary = await generateModuleSummary(content);
+      handleAddNote(`Summary: ${content.title}`, summary);
   };
 
-  // --- Logic for Modules ---
+  const handleCourseSummary = async () => {
+    if (!currentGraphData || !activeSession) return;
+    setSummarizingCourse(true);
+    try {
+        const summary = await generateCourseSummary(currentGraphData, activeSession.context);
+        handleAddNote(`Full Course Guide: ${activeSession.context.learningGoal}`, summary);
+        setToast({ message: "Course summary added to notebook", type: 'info' });
+    } catch (e) {
+        setToast({ message: "Failed to generate summary", type: 'info' });
+    } finally {
+        setSummarizingCourse(false);
+    }
+  };
 
-  const handleSummarizeCourse = async () => {
-      if (!activeSession?.graphData) return;
-      setToastMessage("Generating detailed course summary...");
-      try {
-          const summary = await generateCourseSummary(activeSession.graphData, activeSession.context);
-          const newNote: Note = {
-              id: Date.now().toString(),
-              title: `Summary: ${activeSession.context.learningGoal}`,
-              content: summary,
-              updatedAt: Date.now()
-          };
-          setNotes([newNote, ...notes]);
-          setActiveNoteId(newNote.id);
-          setSidebarTab('notebook');
-          setToastMessage("Summary added to Notebook");
-          setTimeout(() => setToastMessage(null), 3000);
-      } catch (e) {
-          setToastMessage("Failed to generate summary");
+  const handleGenerateGlossary = async () => {
+      if (!activeSession || !currentGraphData) return;
+      const terms = await generateGlossary(activeSession.context.learningGoal, activeSession.context);
+      
+      if (activeSession.currentSubGraphId) {
+          const updatedNodes = activeSession.graphData!.nodes.map(n => {
+              if (n.id === activeSession.currentSubGraphId && n.subGraph) {
+                   return { ...n, subGraph: { ...n.subGraph, glossary: terms } };
+              }
+              return n;
+          });
+          updateActiveSession(s => ({ ...s, graphData: { ...s.graphData!, nodes: updatedNodes } }));
+      } else {
+          updateActiveSession(s => ({
+              ...s,
+              graphData: { ...s.graphData!, glossary: terms }
+          }));
       }
+      setToast({ message: "Flashcards generated", type: 'info' });
   };
 
   const handleNodeClick = async (node: LearningNode) => {
     if (node.status === NodeStatus.LOCKED) return;
-    
+
+    if (activeSession?.context.isDeepStudy && !activeSession.currentSubGraphId) {
+        if (node.subGraph) {
+             updateActiveSession(s => ({ ...s, currentSubGraphId: node.id }));
+             setSelectedNodeId(null);
+             return;
+        } else {
+             setLoadingContent(true);
+             try {
+                 const subGraph = await generateSubGraph(node, activeSession.context);
+                 subGraph.nodes = subGraph.nodes.map((n, i) => ({ 
+                     ...n, 
+                     id: `${node.id}-sub-${n.id}`, 
+                     status: i === 0 ? NodeStatus.AVAILABLE : NodeStatus.LOCKED 
+                }));
+                 subGraph.links = subGraph.links.map(l => ({
+                     source: `${node.id}-sub-${l.source}`,
+                     target: `${node.id}-sub-${l.target}`
+                 }));
+
+                 const updatedNodes = activeSession.graphData!.nodes.map(n => n.id === node.id ? { ...n, subGraph } : n);
+                 updateActiveSession(s => ({
+                     ...s,
+                     graphData: { ...s.graphData!, nodes: updatedNodes },
+                     currentSubGraphId: node.id
+                 }));
+             } catch(e) {
+                 setToast({ message: "Failed to load detailed topics.", type: 'info' });
+             } finally {
+                 setLoadingContent(false);
+             }
+             return;
+        }
+    }
+
     setSelectedNodeId(node.id);
     setViewMode('module'); 
     setLoadingContent(true);
     setLectureContent(null);
-
     try {
-      const completedNodes = activeSession?.graphData?.nodes.filter(n => completedNodeIdsSet.has(n.id)) || [];
-      
-      const contentPromise = generateLectureContent(node, activeSession!.context, completedNodes);
+      const completed = currentGraphData?.nodes.filter(n => activeSession?.completedNodeIds.includes(n.id)) || [];
+      const contentPromise = generateLectureContent(node, activeSession!.context, completed);
       const imagePromise = generateModuleImage(node.title, node.description);
-
       const [content, imageUrl] = await Promise.all([contentPromise, imagePromise]);
-      
-      setLectureContent({
-          ...content,
-          imageUrl: imageUrl || undefined
-      });
-    } catch (err) {
-      console.error(err);
-      setViewMode('graph'); 
-    } finally {
-      setLoadingContent(false);
-    }
+      setLectureContent({ ...content, imageUrl: imageUrl || undefined });
+    } catch (err) { setViewMode('graph'); } finally { setLoadingContent(false); }
   };
 
   const handleModuleComplete = async () => {
-    if (!selectedNodeId || !activeSession?.graphData) return;
-    
-    // Optimistic Update
-    const newCompletedList = [...activeSession.completedNodeIds, selectedNodeId];
-    const newCompletedSet = new Set(newCompletedList);
+      if (!selectedNodeId || !activeSession || !currentGraphData) return;
+      
+      const newCompletedList = [...activeSession.completedNodeIds, selectedNodeId];
+      const newCompletedSet = new Set(newCompletedList);
+      let nextNodeToOpen: LearningNode | null = null;
 
-    let updatedNodes = activeSession.graphData.nodes.map(node => {
-        if (newCompletedSet.has(node.id)) return { ...node, status: NodeStatus.COMPLETED };
-        const allDepsMet = node.dependencies.every(depId => newCompletedSet.has(depId));
-        if (allDepsMet && !newCompletedSet.has(node.id)) return { ...node, status: NodeStatus.AVAILABLE };
-        return { ...node }; 
-    });
+      const updatedNodes = currentGraphData.nodes.map(node => {
+          if (newCompletedSet.has(node.id)) return { ...node, status: NodeStatus.COMPLETED };
+          const deps = node.dependencies; 
+           const parents = currentGraphData.links.filter(l => (typeof l.target === 'object' ? l.target.id : l.target) === node.id).map(l => typeof l.source === 'object' ? l.source.id : l.source);
+           const parentsMet = parents.every(p => newCompletedSet.has(p));
+           
+          if (parentsMet && !newCompletedSet.has(node.id)) {
+              // This node is newly available or already available
+              if (node.status === NodeStatus.LOCKED && !nextNodeToOpen) {
+                  nextNodeToOpen = node;
+              }
+              return { ...node, status: NodeStatus.AVAILABLE };
+          }
+          return { ...node };
+      });
 
-    // Save progress immediately
-    updateActiveSession(s => ({
-        ...s,
-        completedNodeIds: newCompletedList,
-        graphData: { ...s.graphData!, nodes: updatedNodes }
-    }));
+      // If no newly unlocked node, look for next available one
+      if (!nextNodeToOpen) {
+          nextNodeToOpen = updatedNodes.find(n => n.status === NodeStatus.AVAILABLE && !newCompletedSet.has(n.id)) || null;
+      }
 
-    // Check expansion
-    const hasOutgoing = activeSession.graphData.links.some(link => 
-        (typeof link.source === 'object' ? link.source.id : link.source) === selectedNodeId
-    );
-    
-    if (!hasOutgoing) {
-        const completedNode = activeSession.graphData.nodes.find(n => n.id === selectedNodeId);
-        if (completedNode) {
-            setToastMessage("Analyzing progress and generating advanced topics...");
-            try {
-                const existingTitles = activeSession.graphData.nodes.map(n => n.title);
-                const newTopics = await expandLearningGraph(completedNode, activeSession.context, existingTitles);
-                
-                if (newTopics.length > 0) {
-                    const newNodesData = newTopics.map((topic, i) => {
-                        const newId = `${selectedNodeId}-adv-${Date.now()}-${i}`;
-                        return {
-                            id: newId,
-                            title: topic.title,
-                            description: topic.description,
-                            dependencies: [selectedNodeId],
-                            status: NodeStatus.AVAILABLE 
-                        };
-                    });
+      if (activeSession.currentSubGraphId) {
+          const parentNodes = activeSession.graphData!.nodes.map(n => {
+              if (n.id === activeSession.currentSubGraphId) {
+                   return { ...n, subGraph: { ...n.subGraph!, nodes: updatedNodes } };
+              }
+              return n;
+          });
+          
+          const allSubComplete = updatedNodes.every(n => n.status === NodeStatus.COMPLETED);
+          if (allSubComplete) {
+              newCompletedList.push(activeSession.currentSubGraphId);
+              setToast({ message: "Milestone Completed!", type: 'achievement' });
+          }
 
-                    const newLinks = newNodesData.map(n => ({ source: selectedNodeId, target: n.id }));
-                    
-                    // Second Update for Expansion
-                    updateActiveSession(s => ({
-                        ...s,
-                        graphData: {
-                            ...s.graphData!,
-                            nodes: [...updatedNodes, ...newNodesData],
-                            links: [...s.graphData!.links, ...newLinks]
-                        }
-                    }));
-                    
-                    setToastMessage(`Unlocked ${newTopics.length} new advanced modules!`);
-                    setTimeout(() => setToastMessage(null), 5000);
-                } else {
-                     setToastMessage(null);
-                }
-            } catch (e) {
-                console.error("Expansion failed", e);
-                setToastMessage(null);
-            }
-        }
-    }
+          updateActiveSession(s => ({
+              ...s,
+              completedNodeIds: newCompletedList,
+              graphData: { ...s.graphData!, nodes: parentNodes }
+          }));
+
+      } else {
+          updateActiveSession(s => ({
+              ...s,
+              completedNodeIds: newCompletedList,
+              graphData: { ...s.graphData!, nodes: updatedNodes }
+          }));
+      }
+
+      if (newCompletedList.length === 1) setToast({ message: "Badge Unlocked: First Step", type: 'achievement' });
+
+      // Auto Advance Logic
+      if (nextNodeToOpen) {
+          setToast({ message: `Module Complete! Next: ${nextNodeToOpen.title}`, type: 'info' });
+          // Short delay for user to register completion
+          setTimeout(() => {
+              if (nextNodeToOpen) handleNodeClick(nextNodeToOpen);
+          }, 1200);
+      } else {
+          // No next node, go back to map
+          setViewMode('graph');
+      }
   };
 
-  // --- Rendering ---
-
   return (
-    <div className="min-h-screen bg-dark-bg text-slate-200 font-sans selection:bg-brand-500/30 overflow-hidden flex flex-col">
-      <AnimatedBackground />
-
-      {toastMessage && (
-          <Toast message={toastMessage} onClose={() => setToastMessage(null)} />
+    <div className={`${isDarkMode ? 'dark' : ''} min-h-screen flex flex-col`}>
+    <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100 font-sans flex flex-col transition-colors duration-300">
+      {toast && (
+          <div className="fixed bottom-8 right-8 z-[100] animate-slideUp bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-neutral-800 dark:text-white px-6 py-4 rounded-xl shadow-xl flex items-center gap-3">
+              {toast.type === 'achievement' ? <Award className="text-yellow-500" size={20} /> : <CheckCircle className="text-brand-500" size={20} />}
+              <span className="font-medium">{toast.message}</span>
+          </div>
+      )}
+      {showProfile && <UserProfileModal session={activeSession} onClose={() => setShowProfile(false)} />}
+      
+      {/* Global Chat Component */}
+      {activeSession && currentGraphData && (
+          <GlobalChat 
+            userContext={activeSession.context} 
+            graphData={currentGraphData} 
+            isOpen={showGlobalChat} 
+            onClose={() => setShowGlobalChat(false)} 
+          />
       )}
 
-      {/* --- WELCOME --- */}
+      {/* Theme Toggle Button (Global) */}
+      <div className="fixed top-4 right-4 z-[60] flex gap-2">
+         {activeSession && (
+             <button 
+                onClick={() => setShowGlobalChat(!showGlobalChat)}
+                className={`p-2.5 rounded-full border shadow-sm hover:shadow-md transition-all ${showGlobalChat ? 'bg-purple-600 border-purple-600 text-white' : 'bg-white dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 border-neutral-200 dark:border-neutral-700'}`}
+                title="Open Course Chat"
+             >
+                <MessageCircle size={20} />
+             </button>
+         )}
+         <button 
+            onClick={() => setIsDarkMode(!isDarkMode)}
+            className="p-2.5 rounded-full bg-white dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 border border-neutral-200 dark:border-neutral-700 shadow-sm hover:shadow-md transition-all"
+            title="Toggle Dark Mode"
+         >
+            {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
+         </button>
+      </div>
+
+      {/* WELCOME */}
       {globalStep === 'welcome' && (
-        <div className="flex-1 flex flex-col items-center justify-center p-8 z-10">
-          <div className="text-3xl md:text-5xl font-bold mb-6 text-center">
-            <Typewriter 
-              text="Welcome to CogniMap AI" 
-              onComplete={() => setGlobalStep('onboarding')} 
-            />
+        <div className="flex-1 flex flex-col items-center justify-center p-8 z-10 bg-white dark:bg-neutral-950 transition-colors">
+          <div className="max-w-2xl text-center">
+              <div className="inline-flex items-center justify-center p-3 bg-neutral-100 dark:bg-neutral-800 rounded-2xl mb-6">
+                <BrainCircuit className="w-8 h-8 text-neutral-900 dark:text-white" />
+              </div>
+              <h1 className="text-4xl md:text-5xl font-semibold mb-6 text-neutral-900 dark:text-white tracking-tight">
+                 CogniMap
+              </h1>
+              <p className="text-neutral-500 dark:text-neutral-400 text-lg mb-10 max-w-md mx-auto leading-relaxed">
+                Adaptive learning pathways tailored to your expertise. Simple, clear, and effective.
+              </p>
+              <button onClick={() => setGlobalStep('onboarding')} className="px-8 py-3 bg-neutral-900 dark:bg-white hover:bg-neutral-800 dark:hover:bg-neutral-200 text-white dark:text-neutral-900 rounded-lg font-medium transition-all shadow-sm">
+                Start Learning
+              </button>
           </div>
-          <p className="text-slate-500 animate-fadeIn" style={{ animationDelay: '0.5s' }}>
-            Initializing adaptive learning engine...
-          </p>
         </div>
       )}
 
-      {/* --- ONBOARDING / DASHBOARD --- */}
+      {/* ONBOARDING */}
       {globalStep === 'onboarding' && (
-        <div className="container mx-auto px-4 h-screen flex flex-col justify-center items-center relative z-10 animate-fadeIn">
-          <div className="flex flex-col md:flex-row gap-8 w-full max-w-6xl items-start h-[80vh]">
-            
-            {/* New Session Creator */}
-            <div className="flex-1 w-full bg-dark-surface/50 backdrop-blur-xl border border-dark-border/50 p-8 md:p-12 rounded-3xl shadow-2xl flex flex-col justify-center h-full">
-                <div className="text-center mb-10">
-                <div className="inline-flex items-center justify-center p-4 bg-brand-500/10 rounded-2xl mb-6 shadow-lg shadow-brand-500/10 animate-float">
-                    <BrainCircuit className="w-12 h-12 text-brand-400" />
+        <div className="container mx-auto px-4 min-h-screen flex flex-col justify-center items-center py-12">
+          <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 p-8 md:p-12 rounded-2xl shadow-sm w-full max-w-xl transition-colors">
+             <h1 className="text-2xl font-semibold text-neutral-900 dark:text-white mb-2">Create Learning Path</h1>
+             <p className="text-neutral-500 dark:text-neutral-400 mb-8">Tell us what you know and what you want to learn.</p>
+             
+             <div className="space-y-5">
+                <div>
+                    <label className="text-xs uppercase tracking-wide text-neutral-500 dark:text-neutral-500 font-semibold mb-2 block">Current Expertise</label>
+                    <input type="text" placeholder="e.g. Graphic Designer" className="w-full bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg p-3 text-neutral-900 dark:text-white focus:border-neutral-400 dark:focus:border-neutral-500 focus:ring-0 outline-none transition-colors"
+                        value={tempContext.existingKnowledge} onChange={e => setTempContext({...tempContext, existingKnowledge: e.target.value})} />
                 </div>
-                <h1 className="text-4xl font-bold text-white mb-4 tracking-tight">
-                    Start New Journey
-                </h1>
-                <p className="text-slate-400 text-lg leading-relaxed">
-                    Build a custom bridge from what you <span className="text-brand-300 font-medium">know</span> to what you <span className="text-indigo-300 font-medium">want to learn</span>.
-                </p>
+                 <div>
+                    <label className="text-xs uppercase tracking-wide text-neutral-500 dark:text-neutral-500 font-semibold mb-2 block">Learning Goal</label>
+                    <input type="text" placeholder="e.g. UX Research" className="w-full bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg p-3 text-neutral-900 dark:text-white focus:border-neutral-400 dark:focus:border-neutral-500 focus:ring-0 outline-none transition-colors"
+                        value={tempContext.learningGoal} onChange={e => setTempContext({...tempContext, learningGoal: e.target.value})} />
                 </div>
-
-                <div className="space-y-6">
-                <div className="group">
-                    <label className="block text-sm font-semibold text-slate-300 mb-2 ml-1 uppercase tracking-wider text-xs">Your Expertise</label>
-                    <div className="relative">
-                    <Briefcase className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-brand-400 transition-colors" size={20} />
-                    <input
-                        type="text"
-                        placeholder="e.g. Financial Markets, React Development, Gardening..."
-                        className="w-full bg-slate-900/50 border border-slate-700 focus:border-brand-500 focus:bg-slate-900 focus:ring-1 focus:ring-brand-500/50 rounded-xl py-4 pl-12 pr-4 text-white placeholder-slate-600 outline-none transition-all duration-300 text-lg"
-                        value={tempContext.existingKnowledge}
-                        onChange={(e) => setTempContext({ ...tempContext, existingKnowledge: e.target.value })}
-                    />
-                    </div>
+                <div>
+                    <label className="text-xs uppercase tracking-wide text-neutral-500 dark:text-neutral-500 font-semibold mb-2 block">Detailed Background</label>
+                    <textarea placeholder="Provide more context..." className="w-full bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg p-3 text-neutral-900 dark:text-white focus:border-neutral-400 dark:focus:border-neutral-500 focus:ring-0 outline-none transition-colors h-24 resize-none"
+                        value={tempContext.detailedBackground} onChange={e => setTempContext({...tempContext, detailedBackground: e.target.value})} />
                 </div>
 
-                <div className="group">
-                    <label className="block text-sm font-semibold text-slate-300 mb-2 ml-1 uppercase tracking-wider text-xs">Target Goal</label>
-                    <div className="relative">
-                    <GraduationCap className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-brand-400 transition-colors" size={20} />
-                    <input
-                        type="text"
-                        placeholder="e.g. Neuroscience, Rust, Permaculture..."
-                        className="w-full bg-slate-900/50 border border-slate-700 focus:border-brand-500 focus:bg-slate-900 focus:ring-1 focus:ring-brand-500/50 rounded-xl py-4 pl-12 pr-4 text-white placeholder-slate-600 outline-none transition-all duration-300 text-lg"
-                        value={tempContext.learningGoal}
-                        onChange={(e) => setTempContext({ ...tempContext, learningGoal: e.target.value })}
-                    />
-                    </div>
+                <div className="flex items-center gap-4 py-2">
+                    <button 
+                        onClick={() => setTempContext(c => ({...c, isDeepStudy: !c.isDeepStudy}))}
+                        className={`w-10 h-5 rounded-full transition-colors relative ${tempContext.isDeepStudy ? 'bg-neutral-800 dark:bg-white' : 'bg-neutral-300 dark:bg-neutral-600'}`}
+                    >
+                        <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white dark:bg-neutral-900 rounded-full transition-transform ${tempContext.isDeepStudy ? 'translate-x-5' : 'translate-x-0'}`}></div>
+                    </button>
+                    <span className="text-sm text-neutral-600 dark:text-neutral-300 font-medium">Deep Study Mode</span>
                 </div>
 
-                {error && (
-                    <div className="p-4 bg-red-500/10 border border-red-500/50 rounded-xl flex items-center gap-3 text-red-200 animate-slideUp">
-                        <AlertTriangle size={20} />
-                        <span>{error}</span>
-                    </div>
-                )}
-
-                <button
-                    onClick={handleStartJourney}
-                    disabled={!tempContext.existingKnowledge || !tempContext.learningGoal || loading}
-                    className={`w-full py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-3 transition-all duration-300 shadow-lg ${
-                    loading 
-                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
-                    : 'bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white shadow-brand-500/25 hover:shadow-brand-500/40 hover:-translate-y-1'
-                    }`}
-                >
-                    {loading ? <><Loader2 className="animate-spin" /><span>Generating Neural Path...</span></> : <><Sparkles className="animate-pulse" /><span>Generate Curriculum</span><ChevronRight /></>}
+                <button onClick={handleStartJourney} disabled={loading} className="w-full py-3 bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-600 rounded-lg font-medium text-white transition-all flex justify-center gap-2 items-center mt-2 shadow-sm">
+                    {loading ? <Loader2 className="animate-spin" size={18} /> : <span>Generate Path</span>}
                 </button>
-                </div>
-            </div>
-
-            {/* Saved Sessions List */}
-            {sessions.length > 0 && (
-                <div className="w-full md:w-1/3 bg-slate-900/30 backdrop-blur border border-slate-800 p-6 rounded-3xl h-full flex flex-col">
-                    <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
-                        <LayoutGrid size={20} className="text-brand-400" />
-                        Resume Learning
-                    </h2>
-                    <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-2">
-                        {sessions.map(s => (
-                            <div 
-                                key={s.id} 
-                                onClick={() => handleSwitchSession(s.id)}
-                                className="p-4 bg-slate-800/50 hover:bg-slate-800 border border-slate-700/50 hover:border-brand-500/30 rounded-xl cursor-pointer transition-all group relative"
-                            >
-                                <div className="flex justify-between items-start mb-2">
-                                    <h3 className="font-bold text-slate-200 text-sm group-hover:text-brand-300 truncate pr-6">{s.context.learningGoal}</h3>
-                                    <button 
-                                        onClick={(e) => handleDeleteSession(e, s.id)}
-                                        className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 absolute right-2 top-2 p-2"
-                                    >
-                                        <Trash2 size={14} />
-                                    </button>
-                                </div>
-                                <div className="text-xs text-slate-500 mb-3 flex items-center gap-1">
-                                    <Briefcase size={10} />
-                                    via {s.context.existingKnowledge}
-                                </div>
-                                <div className="flex items-center justify-between text-xs text-slate-400">
-                                    <div className="flex items-center gap-1">
-                                        <Clock size={10} />
-                                        {new Date(s.lastAccessed).toLocaleDateString()}
-                                    </div>
-                                    <div className="px-2 py-0.5 bg-slate-900 rounded-md border border-slate-700">
-                                        {s.completedNodeIds.length} / {s.graphData?.nodes.length || '?'}
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
+             </div>
+             
+             {sessions.length > 0 && (
+                 <div className="mt-8 pt-6 border-t border-neutral-100 dark:border-neutral-800">
+                     <div className="text-xs text-neutral-400 uppercase tracking-widest mb-4 font-medium">Recent Sessions</div>
+                     <div className="flex flex-col gap-2">
+                         {sessions.map(s => (
+                             <button key={s.id} onClick={() => { setActiveSessionId(s.id); setGlobalStep('session_active'); }} className="w-full text-left px-4 py-3 bg-neutral-50 hover:bg-neutral-100 dark:bg-neutral-800 dark:hover:bg-neutral-700 border border-neutral-100 dark:border-neutral-700 rounded-lg text-sm text-neutral-700 dark:text-neutral-200 transition-colors flex justify-between">
+                                 <span className="font-medium">{s.context.learningGoal}</span>
+                                 <span className="text-neutral-400 text-xs">{new Date(s.lastAccessed).toLocaleDateString()}</span>
+                             </button>
+                         ))}
+                     </div>
+                 </div>
+             )}
           </div>
         </div>
       )}
 
-      {/* --- ACTIVE SESSION --- */}
-      {globalStep === 'session_active' && activeSession && (
-          <>
-          {activeSession.step === 'review' && activeSession.graphData && (
-            <div className="container mx-auto px-4 h-screen flex flex-col justify-center items-center animate-fadeIn z-10">
-             <div className="max-w-5xl w-full h-[85vh] flex flex-col bg-dark-surface/80 backdrop-blur-md border border-dark-border rounded-3xl shadow-2xl overflow-hidden">
-                <div className="p-6 border-b border-dark-border flex justify-between items-center bg-slate-900/50">
-                    <div>
-                        <h2 className="text-2xl font-bold text-white">Curriculum Review</h2>
-                        <p className="text-slate-400 text-sm">Review your personalized learning path.</p>
-                    </div>
-                    <div className="flex items-center gap-4">
-                        <div className="px-4 py-2 bg-brand-500/10 rounded-full border border-brand-500/20 text-brand-300 text-xs font-mono font-bold flex items-center gap-2">
-                            <List size={14} />
-                            {activeSession.graphData.nodes.length} Modules Generated
+      {/* MAIN APP VIEW */}
+      {globalStep === 'session_active' && activeSession && currentGraphData && (
+          activeSession.step === 'review' ? (
+              // REVIEW SCREEN
+             <div className="container mx-auto px-4 h-screen flex flex-col justify-center items-center animate-fadeIn">
+                 <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl p-8 max-w-4xl w-full h-[80vh] flex flex-col shadow-sm transition-colors">
+                     <div className="mb-6">
+                        <h2 className="text-2xl font-semibold text-neutral-900 dark:text-white">Review Curriculum</h2>
+                        <p className="text-neutral-500 dark:text-neutral-400 mt-1">Check the generated topics before starting.</p>
+                     </div>
+                     <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3 pr-2 mb-6">
+                         {currentGraphData.nodes.map((n, i) => (
+                             <div key={n.id} className="bg-neutral-50 dark:bg-neutral-800 p-4 rounded-xl border border-neutral-100 dark:border-neutral-700 flex gap-4">
+                                 <span className="text-neutral-300 dark:text-neutral-600 font-mono font-bold">{(i+1).toString().padStart(2, '0')}</span>
+                                 <div><h4 className="font-medium text-neutral-900 dark:text-white">{n.title}</h4><p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">{n.description}</p></div>
+                             </div>
+                         ))}
+                     </div>
+                     <div className="flex gap-4 border-t border-neutral-100 dark:border-neutral-800 pt-6">
+                         <textarea value={reviewFeedback} onChange={e => setReviewFeedback(e.target.value)} placeholder="Provide feedback to refine..." className="flex-1 bg-neutral-50 dark:bg-neutral-800 rounded-lg p-3 text-neutral-800 dark:text-neutral-200 border border-neutral-200 dark:border-neutral-700 focus:border-neutral-400 outline-none resize-none text-sm transition-colors" />
+                         <div className="flex flex-col gap-2 shrink-0">
+                             <button onClick={() => { /* refine logic */}} className="px-5 py-2.5 bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 rounded-lg font-medium text-sm hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors">Refine</button>
+                             <button onClick={() => { updateActiveSession(s => ({...s, step: 'main', graphData: {...s.graphData!, nodes: s.graphData!.nodes.map((n, i) => ({...n, status: i===0? NodeStatus.AVAILABLE: NodeStatus.LOCKED}))}})) }} className="px-5 py-2.5 bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 rounded-lg font-medium text-sm hover:bg-neutral-800 dark:hover:bg-neutral-200 transition-colors shadow-sm">Start Learning</button>
+                         </div>
+                     </div>
+                 </div>
+             </div>
+          ) : (
+             <div className="flex flex-1 relative animate-fadeIn bg-neutral-50 dark:bg-neutral-950 transition-colors">
+                 {/* SIDEBAR */}
+                <aside 
+                    style={{ width: sidebarWidth }}
+                    className="sticky top-0 h-screen bg-white dark:bg-neutral-900 border-r border-neutral-200 dark:border-neutral-800 flex flex-col z-20 transition-colors"
+                >
+                    {/* Header */}
+                    <div className="p-5 border-b border-neutral-100 dark:border-neutral-800 flex justify-between items-center">
+                        <div className="font-semibold text-neutral-900 dark:text-white text-lg flex items-center gap-2">
+                            <BrainCircuit className="text-neutral-900 dark:text-white" size={20} /> CogniMap
                         </div>
-                        <button onClick={() => setGlobalStep('onboarding')} className="text-slate-500 hover:text-white">
-                            <X size={20} />
-                        </button>
+                         <button onClick={() => setShowProfile(true)} className="p-1.5 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-md text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 transition-colors"><User size={18}/></button>
                     </div>
-                </div>
-
-                <div className="flex-1 overflow-y-auto p-6 flex flex-col md:flex-row gap-6 custom-scrollbar">
-                    {/* List of Modules */}
-                    <div className="flex-1 space-y-3">
-                        {activeSession.graphData.nodes.map((node, i) => (
-                            <div key={node.id} className="p-5 bg-slate-800/40 hover:bg-slate-800/80 rounded-2xl border border-slate-700/50 transition-colors flex gap-5 group">
-                                <div className="w-10 h-10 rounded-full bg-slate-700/50 group-hover:bg-brand-500/20 group-hover:text-brand-300 flex items-center justify-center text-sm font-bold text-slate-400 shrink-0 transition-colors">
-                                    {i + 1}
-                                </div>
-                                <div>
-                                    <h4 className="font-bold text-slate-200 text-lg group-hover:text-white transition-colors">{node.title}</h4>
-                                    <p className="text-sm text-slate-400 mt-1 leading-relaxed">{node.description}</p>
-                                </div>
-                            </div>
+                    {/* Navigation */}
+                    <div className="flex p-2 gap-1 border-b border-neutral-100 dark:border-neutral-800">
+                        {['graph', 'modules', 'flashcards', 'notebook'].map(tab => (
+                            <button key={tab} onClick={() => {setSidebarTab(tab as any); if(tab==='graph') setViewMode('graph');}} 
+                                className={`flex-1 py-2 rounded-md text-xs font-semibold uppercase tracking-wide transition-colors ${sidebarTab === tab ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-white' : 'text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800/50'}`}>
+                                {tab === 'graph' ? <Map className="mx-auto mb-1" size={16}/> : tab === 'modules' ? <List className="mx-auto mb-1" size={16}/> : tab === 'flashcards' ? <RefreshCw className="mx-auto mb-1" size={16}/> : <FileText className="mx-auto mb-1" size={16}/>}
+                                {tab}
+                            </button>
                         ))}
                     </div>
-
-                    {/* Feedback / Action Panel */}
-                    <div className="w-full md:w-80 flex flex-col gap-6 shrink-0">
-                        <div className="p-5 bg-slate-800/80 rounded-2xl border border-slate-700 shadow-xl">
-                             <h3 className="font-bold text-white mb-3 flex items-center gap-2">
-                                <Edit2 size={16} className="text-brand-400" />
-                                Refine Plan
-                             </h3>
-                             <p className="text-xs text-slate-400 mb-3 leading-relaxed">
-                                Not quite right? Tell the AI what to change (e.g., "Make it more advanced," "Skip the basics," "Focus on X").
-                             </p>
-                             <textarea 
-                                value={reviewFeedback}
-                                onChange={(e) => setReviewFeedback(e.target.value)}
-                                className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white mb-3 h-32 focus:border-brand-500 outline-none resize-none transition-colors"
-                                placeholder="E.g. I already know the basics, start with advanced topics..."
-                             />
-                             <button 
-                                onClick={handleRefinePlan}
-                                disabled={isRefining || !reviewFeedback.trim()}
-                                className="w-full py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-xl text-sm font-bold transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg"
-                            >
-                                {isRefining ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
-                                Update Plan
-                             </button>
-                        </div>
-
-                        <div className="mt-auto">
-                            <button 
-                                onClick={handleApprovePlan}
-                                className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-lg shadow-lg shadow-emerald-500/20 transition-all hover:-translate-y-1 hover:shadow-emerald-500/40 flex items-center justify-center gap-2"
-                            >
-                                Start Learning
-                                <ArrowRight size={20} />
-                            </button>
-                        </div>
-                    </div>
-                </div>
-             </div>
-            </div>
-          )}
-
-          {activeSession.step === 'main' && activeSession.graphData && (
-             <div className="flex h-screen overflow-hidden animate-fadeIn z-10">
-            
-            {/* SIDEBAR */}
-            <aside className="w-[320px] md:w-[380px] bg-dark-surface/95 backdrop-blur border-r border-dark-border flex flex-col shrink-0 z-20">
-                <div className="p-5 border-b border-dark-border flex justify-between items-center relative">
-                    <button onClick={() => setShowSessionMenu(!showSessionMenu)} className="font-bold text-brand-400 text-xl flex items-center gap-2 tracking-tight hover:opacity-80">
-                        <BrainCircuit size={26} />
-                        CogniMap
-                        <ChevronRight size={16} className={`transition-transform ${showSessionMenu ? 'rotate-90' : ''}`} />
-                    </button>
                     
-                    {/* Session Dropdown Menu */}
-                    {showSessionMenu && (
-                        <div className="absolute top-full left-0 w-full bg-slate-800 border-b border-slate-700 shadow-2xl z-50 p-2 flex flex-col gap-1 animate-slideUp">
-                            <button 
-                                onClick={handleNewSession}
-                                className="flex items-center gap-2 p-3 text-sm font-bold text-white bg-brand-600 hover:bg-brand-500 rounded-xl transition-colors"
-                            >
-                                <Plus size={16} />
-                                Start New Journey
-                            </button>
-                            <div className="h-px bg-slate-700 my-1"></div>
-                            <span className="text-[10px] uppercase text-slate-500 font-bold px-2 py-1">Saved Journeys</span>
-                            <div className="max-h-60 overflow-y-auto custom-scrollbar">
-                                {sessions.map(s => (
+                    {/* Sidebar Content */}
+                    <div className="flex-1 overflow-hidden relative">
+                        {sidebarTab === 'graph' && (
+                            <div className="p-6">
+                                <h3 className="text-xs font-bold text-neutral-400 uppercase mb-4 tracking-wider">Progress</h3>
+                                <div className="text-3xl font-semibold text-neutral-900 dark:text-white mb-2">{progress}%</div>
+                                <div className="w-full h-1.5 bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden mb-6"><div className="h-full bg-blue-600" style={{width: `${progress}%`}}></div></div>
+                                
+                                <div className="space-y-3">
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-neutral-500 dark:text-neutral-400">Completed</span>
+                                        <span className="font-medium text-neutral-900 dark:text-white">{activeSession.completedNodeIds.length}</span>
+                                    </div>
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-neutral-500 dark:text-neutral-400">Remaining</span>
+                                        <span className="font-medium text-neutral-900 dark:text-white">{activeSession.graphData!.nodes.length - activeSession.completedNodeIds.length}</span>
+                                    </div>
+                                </div>
+
+                                {activeSession.context.isDeepStudy && (
+                                    <div className="mt-8 p-3 bg-neutral-50 dark:bg-neutral-800 border border-neutral-100 dark:border-neutral-700 rounded-lg">
+                                        <div className="flex items-center gap-2 text-neutral-900 dark:text-white font-medium text-sm mb-1"><Layers size={14}/> Deep Study</div>
+                                        <p className="text-xs text-neutral-500 dark:text-neutral-400">Select milestones to explore sub-topics.</p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                        {sidebarTab === 'modules' && (
+                             <div className="absolute inset-0 flex flex-col">
+                                <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-1">
+                                    {activeSession.currentSubGraphId && (
+                                        <button onClick={() => updateActiveSession(s => ({...s, currentSubGraphId: null}))} className="w-full p-3 mb-2 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg text-neutral-600 dark:text-neutral-300 flex items-center gap-2 text-sm font-medium hover:bg-neutral-50 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-white shadow-sm transition-colors">
+                                            <CornerUpLeft size={16} /> Back to Roadmap
+                                        </button>
+                                    )}
+                                    {currentGraphData.nodes.map((node, i) => (
+                                        <button key={node.id} onClick={() => handleNodeClick(node)} disabled={node.status === NodeStatus.LOCKED}
+                                            className={`w-full text-left p-3 rounded-lg flex items-center gap-3 transition-all ${node.id === selectedNodeId ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-900 dark:text-blue-100 border border-blue-100 dark:border-blue-800' : 'hover:bg-neutral-50 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border border-transparent'} ${node.status === NodeStatus.LOCKED ? 'opacity-40' : ''}`}>
+                                            <div className="shrink-0 text-neutral-400 dark:text-neutral-500">{node.status === NodeStatus.COMPLETED ? <CheckCircle size={16} className="text-green-600 dark:text-green-400"/> : node.status === NodeStatus.LOCKED ? <Lock size={16}/> : <PlayCircle size={16} className={node.id === selectedNodeId ? 'text-blue-600 dark:text-blue-400' : ''}/>}</div>
+                                            <div className="text-sm font-medium truncate">{node.title}</div>
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="p-3 border-t border-neutral-100 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900/50">
                                     <button 
-                                        key={s.id}
-                                        onClick={() => handleSwitchSession(s.id)}
-                                        className={`w-full text-left p-2 rounded-lg text-sm flex justify-between items-center ${activeSessionId === s.id ? 'bg-slate-700 text-white' : 'text-slate-400 hover:bg-slate-700 hover:text-white'}`}
+                                        onClick={handleCourseSummary} 
+                                        disabled={summarizingCourse}
+                                        className="w-full py-2.5 px-4 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-lg text-sm font-medium text-neutral-700 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-700 transition-colors flex items-center justify-center gap-2 shadow-sm"
                                     >
-                                        <span className="truncate">{s.context.learningGoal}</span>
-                                        {activeSessionId === s.id && <div className="w-2 h-2 bg-brand-500 rounded-full"></div>}
+                                        {summarizingCourse ? <Loader2 size={16} className="animate-spin" /> : <FileText size={16} />}
+                                        {summarizingCourse ? 'Summarizing...' : 'Summarize Course'}
                                     </button>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-                </div>
-
-                {/* Sidebar Navigation Tabs */}
-                <div className="flex p-2 gap-1 border-b border-dark-border bg-slate-900/50">
-                    <button 
-                        onClick={() => { setSidebarTab('graph'); setViewMode('graph'); }}
-                        className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 rounded-lg text-[10px] font-bold transition-colors ${sidebarTab === 'graph' ? 'bg-slate-800 text-brand-400 shadow-sm' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
-                    >
-                        <Map size={18} />
-                        Map
-                    </button>
-                    <button 
-                        onClick={() => setSidebarTab('modules')}
-                        className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 rounded-lg text-[10px] font-bold transition-colors ${sidebarTab === 'modules' ? 'bg-slate-800 text-brand-400 shadow-sm' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
-                    >
-                        <List size={18} />
-                        Modules
-                    </button>
-                    <button 
-                        onClick={() => setSidebarTab('notebook')}
-                        className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 rounded-lg text-[10px] font-bold transition-colors ${sidebarTab === 'notebook' ? 'bg-slate-800 text-brand-400 shadow-sm' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
-                    >
-                        <FileText size={18} />
-                        Notes
-                    </button>
-                    <button 
-                        onClick={() => setSidebarTab('dictionary')}
-                        className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 rounded-lg text-[10px] font-bold transition-colors ${sidebarTab === 'dictionary' ? 'bg-slate-800 text-brand-400 shadow-sm' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
-                    >
-                        <Book size={18} />
-                        Dict
-                    </button>
-                </div>
-
-                {/* Sidebar Content Area */}
-                <div className="flex-1 overflow-hidden relative">
-                    {sidebarTab === 'graph' && (
-                        <div className="absolute inset-0 overflow-y-auto custom-scrollbar p-3">
-                            <div className="p-3">
-                                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Learning Path Stats</h3>
-                                <div className="bg-gradient-to-br from-slate-800 to-slate-900 p-5 rounded-2xl border border-slate-700/50 mb-6 shadow-lg">
-                                    <div className="text-4xl font-bold text-white mb-1">{progress}%</div>
-                                    <div className="text-xs text-slate-400 font-medium uppercase tracking-wide">Completion Rate</div>
-                                    <div className="w-full h-2 bg-slate-700/50 rounded-full mt-4 overflow-hidden">
-                                        <div className="h-full bg-gradient-to-r from-brand-500 to-emerald-500" style={{ width: `${progress}%` }}></div>
-                                    </div>
                                 </div>
-                                <div className="space-y-4">
-                                    <div className="flex justify-between text-sm text-slate-400 font-medium">
-                                        <span>Total Modules</span>
-                                        <span className="text-white bg-slate-800 px-2 py-0.5 rounded text-xs">{activeSession.graphData.nodes.length}</span>
-                                    </div>
-                                    <div className="flex justify-between text-sm text-slate-400 font-medium">
-                                        <span>Completed</span>
-                                        <span className="text-emerald-400 bg-emerald-900/20 px-2 py-0.5 rounded text-xs">{activeSession.completedNodeIds.length}</span>
-                                    </div>
-                                    <div className="flex justify-between text-sm text-slate-400 font-medium">
-                                        <span>Locked</span>
-                                        <span className="text-slate-500 bg-slate-800 px-2 py-0.5 rounded text-xs">{activeSession.graphData.nodes.filter(n => n.status === NodeStatus.LOCKED).length}</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {sidebarTab === 'modules' && (
-                        <div className="absolute inset-0 overflow-y-auto custom-scrollbar p-3 space-y-1">
-                             <div className="mb-4">
-                                <button 
-                                    onClick={handleSummarizeCourse}
-                                    className="w-full py-3 bg-brand-600/10 hover:bg-brand-600/20 border border-brand-500/30 hover:border-brand-500/50 text-brand-300 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all"
-                                >
-                                    <Highlighter size={16} />
-                                    Summarize Curriculum
-                                </button>
                              </div>
-                             {activeSession.graphData.nodes.map((node, i) => (
-                                <button
-                                    key={node.id}
-                                    onClick={() => handleNodeClick(node)}
-                                    disabled={node.status === NodeStatus.LOCKED}
-                                    className={`w-full text-left p-4 rounded-xl flex items-start gap-3 transition-all ${
-                                        node.id === selectedNodeId && viewMode === 'module'
-                                            ? 'bg-brand-900/20 border border-brand-500/30 shadow-sm' 
-                                            : node.status === NodeStatus.LOCKED
-                                                ? 'opacity-50 cursor-not-allowed hover:bg-transparent'
-                                                : 'hover:bg-slate-800 border border-transparent hover:border-slate-700'
-                                    }`}
-                                >
-                                    <div className="mt-0.5 shrink-0">
-                                        {node.status === NodeStatus.COMPLETED ? <CheckCircle size={18} className="text-emerald-500" /> :
-                                         node.status === NodeStatus.LOCKED ? <Lock size={18} className="text-slate-600" /> :
-                                         <PlayCircle size={18} className="text-brand-400" />}
-                                    </div>
-                                    <div>
-                                        <div className={`text-sm font-bold ${node.id === selectedNodeId ? 'text-brand-300' : 'text-slate-200'}`}>
-                                            {i + 1}. {node.title}
-                                        </div>
-                                        <div className="text-xs text-slate-500 mt-1 line-clamp-2 leading-relaxed">{node.description}</div>
-                                    </div>
-                                </button>
-                            ))}
-                        </div>
-                    )}
-
-                    {sidebarTab === 'notebook' && (
-                        <div className="absolute inset-0">
-                            <Notebook 
-                                notes={notes}
-                                activeNoteId={activeNoteId}
-                                onSelectNote={setActiveNoteId}
-                                onAddNote={handleAddNote}
-                                onUpdateNote={handleUpdateNote}
-                                onDeleteNote={handleDeleteNote}
-                            />
-                        </div>
-                    )}
-
-                    {sidebarTab === 'dictionary' && (
-                        <div className="absolute inset-0">
-                            <Dictionary userContext={activeSession.context} glossary={activeSession.graphData.glossary} />
-                        </div>
-                    )}
-                </div>
-
-                <div className="p-4 border-t border-dark-border text-[10px] text-slate-600 uppercase tracking-widest text-center">
-                    Powered by Gemini 2.5 Flash
-                </div>
-            </aside>
-
-            {/* MAIN CONTENT AREA */}
-            <main className="flex-1 bg-dark-bg/90 relative overflow-hidden flex flex-col">
-                {viewMode === 'graph' && (
-                    <div className="flex-1 relative">
-                        <ForceGraph data={activeSession.graphData} onNodeClick={handleNodeClick} />
+                        )}
+                        {sidebarTab === 'flashcards' && <div className="absolute inset-0"><Flashcards terms={currentGraphData.glossary} onGenerate={handleGenerateGlossary} /></div>}
+                        {sidebarTab === 'dictionary' && <div className="absolute inset-0"><Dictionary userContext={activeSession.context} glossary={currentGraphData.glossary} /></div>}
+                        {sidebarTab === 'notebook' && <div className="absolute inset-0"><Notebook notes={notes} activeNoteId={activeNoteId} onSelectNote={setActiveNoteId} onAddNote={() => handleAddNote('New Note', '')} onUpdateNote={handleUpdateNote} onDeleteNote={handleDeleteNote} /></div>}
                     </div>
-                )}
 
-                {viewMode === 'module' && (
-                    loadingContent ? (
-                        <div className="flex-1 flex flex-col items-center justify-center p-8">
-                            <div className="w-20 h-20 relative mb-8">
-                                <div className="absolute inset-0 bg-brand-500 rounded-full animate-ping opacity-20"></div>
-                                <div className="relative z-10 bg-dark-surface rounded-full p-6 border border-dark-border shadow-2xl flex items-center justify-center">
-                                    <Loader2 className="w-10 h-10 text-brand-500 animate-spin" />
+                    {/* Resizer Handle */}
+                    <div 
+                        onMouseDown={startResizing}
+                        className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-blue-500/50 active:bg-blue-500 transition-colors z-30"
+                    ></div>
+                </aside>
+
+                {/* MAIN AREA */}
+                <main className="flex-1 flex flex-col min-w-0 bg-neutral-50 dark:bg-neutral-950 transition-colors">
+                    {/* Breadcrumbs */}
+                    {activeSession.context.isDeepStudy && activeSession.currentSubGraphId && (
+                        <div className="absolute top-4 left-4 z-30 flex items-center gap-2 bg-white/80 dark:bg-neutral-900/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-neutral-200 dark:border-neutral-800 shadow-sm transition-colors">
+                            <span className="text-neutral-400 text-xs font-bold uppercase tracking-wide">Roadmap</span>
+                            <ChevronRight size={12} className="text-neutral-400" />
+                            <span className="text-neutral-800 dark:text-neutral-200 text-xs font-bold uppercase truncate max-w-[200px]">{activeSession.graphData?.nodes.find(n => n.id === activeSession.currentSubGraphId)?.title}</span>
+                        </div>
+                    )}
+
+                    {viewMode === 'graph' && (
+                        <div className="flex-1 p-4 flex flex-col">
+                            {loadingContent && (
+                                <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/50 dark:bg-black/50 backdrop-blur-sm">
+                                    <div className="bg-white dark:bg-neutral-900 p-6 rounded-xl shadow-xl flex flex-col items-center border border-neutral-100 dark:border-neutral-800">
+                                        <Loader2 className="w-8 h-8 text-neutral-900 dark:text-white animate-spin mb-3" />
+                                        <div className="text-neutral-900 dark:text-white font-medium">Loading Content...</div>
+                                    </div>
                                 </div>
+                            )}
+                            <div className="h-[85vh] min-h-[600px] w-full">
+                                <ForceGraph data={currentGraphData} onNodeClick={handleNodeClick} isDarkMode={isDarkMode} />
                             </div>
-                            <h2 className="text-3xl font-bold text-white mb-3">Creating Module</h2>
-                            <p className="text-slate-400 text-center max-w-md text-lg">
-                                Gemini is analyzing <span className="text-brand-300">"{activeSession.graphData.nodes.find(n => n.id === selectedNodeId)?.title}"</span> and generating a custom textbook chapter with illustrations based on your background in <span className="text-indigo-300">{activeSession.context.existingKnowledge}</span>.
-                            </p>
                         </div>
-                    ) : lectureContent ? (
-                        <LectureView 
-                            content={lectureContent}
-                            userContext={activeSession.context}
-                            onComplete={handleModuleComplete}
-                            onBackToMap={() => setViewMode('graph')}
-                        />
-                    ) : (
-                        <div className="flex-1 flex flex-col items-center justify-center text-slate-500">
-                             <Map className="w-16 h-16 mb-4 opacity-20" />
-                             <p>Select a module from the sidebar or graph to begin.</p>
-                        </div>
-                    )
-                )}
-            </main>
-            </div>
-          )}
-          </>
+                    )}
+
+                    {viewMode === 'module' && (
+                        loadingContent ? (
+                            <div className="flex-1 flex flex-col items-center justify-center min-h-[50vh]">
+                                <div className="w-16 h-16 rounded-full border-4 border-neutral-200 dark:border-neutral-800 border-t-neutral-800 dark:border-t-white animate-spin mb-6"></div>
+                                <h2 className="text-xl font-medium text-neutral-900 dark:text-white">Synthesizing Module</h2>
+                                <p className="text-neutral-500 dark:text-neutral-400 mt-2">Tailoring content...</p>
+                            </div>
+                        ) : lectureContent ? (
+                            <div className="flex-1 flex flex-col h-screen">
+                                <LectureView content={lectureContent} userContext={activeSession.context} onComplete={handleModuleComplete} onBackToMap={() => setViewMode('graph')} onRefine={handleRefineModule} onSaveSummary={handleSaveSummary} onFail={handleModuleFail} />
+                            </div>
+                        ) : null
+                    )}
+                </main>
+             </div>
+          )
       )}
+    </div>
     </div>
   );
 };
